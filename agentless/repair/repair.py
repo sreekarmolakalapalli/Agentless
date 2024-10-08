@@ -47,6 +47,11 @@ We are currently solving the following issue within our repository. Here is the 
 {problem_statement}
 --- END ISSUE ---
 
+We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
+--- BEGIN PATCH ---
+{test_patch}
+--- END PATCH ---
+
 {repair_relevant_file_instruction}
 --- BEGIN FILE ---
 ```
@@ -77,6 +82,11 @@ We are currently solving the following issue within our repository. Here is the 
 {problem_statement}
 --- END ISSUE ---
 
+We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
+--- BEGIN PATCH ---
+{test_patch}
+--- END PATCH ---
+
 {repair_relevant_file_instruction}
 --- BEGIN FILE ---
 ```
@@ -106,6 +116,11 @@ We are currently solving the following issue within our repository. Here is the 
 --- BEGIN ISSUE ---
 {problem_statement}
 --- END ISSUE ---
+
+We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
+--- BEGIN PATCH ---
+{test_patch}
+--- END PATCH ---
 
 {repair_relevant_file_instruction}
 --- BEGIN FILE ---
@@ -270,6 +285,7 @@ def process_loc(loc, args, swe_bench_data, prev_o):
     pred_files = loc["found_files"][: args.top_n]
     bench_data = [x for x in swe_bench_data if x["instance_id"] == instance_id][0]
     problem_statement = bench_data["problem_statement"]
+    test_patch = bench_data["test_patch"]
     structure = get_repo_structure(
         instance_id, bench_data["repo"], bench_data["base_commit"], "playground"
     )
@@ -339,6 +355,7 @@ def process_loc(loc, args, swe_bench_data, prev_o):
     message = prompt_template.format(
         repair_relevant_file_instruction=file_instruction,
         problem_statement=problem_statement,
+        test_patch=test_patch,
         content=topn_content.rstrip(),
     ).strip()
     logger.info(f"prompting with message:\n{message}")
