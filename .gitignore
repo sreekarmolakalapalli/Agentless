@@ -56,7 +56,6 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -175,10 +174,3 @@ cython_debug/
 /get_repo_structure/sympy
 /get_repo_structure/xarray
 get_repo_structure/test_repo/
-
-# data files
-*.jsonl
-*.json
-
-# Jupyter Notebooks
-*.ipynb
