@@ -59,6 +59,7 @@ def localize_instance(
 
     bench_data = [x for x in swe_bench_data if x["instance_id"] == instance_id][0]
     problem_statement = bench_data["problem_statement"]
+    test_patch = bench_data["test_patch"]
     structure = d["structure"]
 
     filter_none_python(structure)  # some basic filtering steps
@@ -81,6 +82,7 @@ def localize_instance(
             d["instance_id"],
             structure,
             problem_statement,
+            test_patch,
             args.model,
             args.backend,
             logger,
@@ -112,6 +114,7 @@ def localize_instance(
                 d["instance_id"],
                 structure,
                 problem_statement,
+                test_patch,
                 args.model,
                 args.backend,
                 logger,
@@ -139,6 +142,7 @@ def localize_instance(
             instance_id,
             structure,
             problem_statement,
+            test_patch,
             args.model,
             args.backend,
             logger,
