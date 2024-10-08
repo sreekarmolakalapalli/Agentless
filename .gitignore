@@ -175,7 +175,6 @@ cython_debug/
 /get_repo_structure/sympy
 /get_repo_structure/xarray
 get_repo_structure/test_repo/
-results/
 
 # data files
 *.jsonl

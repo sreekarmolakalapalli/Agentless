@@ -532,7 +532,7 @@ def post_process_raw_output(
             git_diff = fake_git_repo("playground", edited_file, content, new_content)
 
             raw_git_diffs += "\n" + git_diff.replace(
-                "\ No newline at end of file\n", ""
+                "\\ No newline at end of file\n", ""
             )
 
             syntax_success = check_syntax(new_content)
