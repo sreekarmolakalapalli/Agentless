@@ -3,7 +3,8 @@ from typing import Dict, Union
 
 import openai
 import tiktoken
-
+import groq
+from groq import Groq 
 
 def num_tokens_from_messages(message, model="gpt-3.5-turbo-0301"):
     """Returns the number of tokens used by a list of messages."""
@@ -96,6 +97,46 @@ def request_chatgpt_engine(config, logger, base_url=None, max_retries=40, timeou
 
     logger.info(f"API response {ret}")
     return ret
+
+
+def request_groq_engine(config, logger, base_url=None, max_retries=40, timeout=100):
+    ret = None
+    retries = 0
+
+    client = Groq()
+
+    while ret is None and retries < max_retries:
+        try:
+            # Attempt to get the completion
+            logger.info("Creating API request")
+
+            ret = client.chat.completions.create(**config)
+
+
+        except groq.APIConnectionError as e:
+            print("The server could not be reached")
+            print(e.__cause__)  # an underlying Exception, likely raised within httpx.
+            logger.info(e)
+
+        except groq.RateLimitError as e:
+            print("A 429 status code was received; we should back off a bit.")
+            print("Rate limit exceeded. Waiting...")
+            logger.info("Rate limit exceeded. Waiting...")
+            print(e)
+            logger.info(e)
+            time.sleep(5)
+        except groq.APIStatusError as e:
+            print("Another non-200-range status code was received")
+            print(e.status_code)
+            print(e.response)
+            logger.info(e)
+            time.sleep(5)
+
+        retries += 1
+
+    logger.info(f"API response {ret}")
+    return ret
+
 
 
 def create_anthropic_config(
