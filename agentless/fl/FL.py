@@ -15,11 +15,14 @@ MAX_CONTEXT_LENGTH = 128000
 
 
 class FL(ABC):
-    def __init__(self, instance_id, structure, problem_statement, test_patch, **kwargs):
+    def __init__(self, instance_id, structure, problem_statement, test_patch, use_test_patch, **kwargs):
         self.structure = structure
         self.instance_id = instance_id
         self.problem_statement = problem_statement
+        self.use_unit_test = use_test_patch
         self.test_patch = test_patch
+        self.test_patch_prompt = f"### Fail to pass unit test patch ###\n\n{test_patch}\n\n###\n" if use_test_patch else ""
+        self.test_patch_str = "fail to pass test patch, " if use_test_patch else "" # NOTE: janky but it'll work
 
     @abstractmethod
     def localize(self, top_n=1, mock=False) -> tuple[list, list, list, any]:
@@ -28,17 +31,14 @@ class FL(ABC):
 
 class LLMFL(FL):
     obtain_relevant_files_prompt = """
-Please look through the following GitHub problem description, fail to pass test patch, and Repository structure and provide a list of files that one would need to edit to fix the problem.
+Please look through the following GitHub problem description, {test_patch_str}and Repository structure and provide a list of files that one would need to edit to fix the problem.
 
 ### GitHub Problem Description ###
 {problem_statement}
 
 ###
 
-### Fail to pass unit test patch ###
-{test_patch}
-
-###
+{test_patch_prompt}
 
 ### Repository Structure ###
 {structure}
@@ -55,17 +55,14 @@ file2.py
 """
 
     obtain_relevant_code_prompt = """
-Please look through the following GitHub problem description, fail to pass test patch, and file and provide a set of locations that one would need to edit to fix the problem.
+Please look through the following GitHub problem description, {test_patch_str}and file and provide a set of locations that one would need to edit to fix the problem.
 
 ### GitHub Problem Description ###
 {problem_statement}
 
 ###
 
-### Fail to pass unit test patch ###
-{test_patch}
-
-###
+{test_patch_prompt}
 
 ### File: {file_name} ###
 {file_content}
@@ -100,7 +97,7 @@ Return just the location(s)
 ```
 """
     obtain_relevant_code_combine_top_n_prompt = """
-Please review the following GitHub problem description, fail to pass test patch, and relevant files, and provide a set of locations that need to be edited to fix the issue.
+Please review the following GitHub problem description, {test_patch_str}and relevant files, and provide a set of locations that need to be edited to fix the issue.
 The locations can be specified as class names, function or method names, or exact line numbers that require modification.
 
 ### GitHub Problem Description ###
@@ -108,10 +105,7 @@ The locations can be specified as class names, function or method names, or exac
 
 ###
 
-### Fail to pass unit test patch ###
-{test_patch}
-
-###
+{test_patch_prompt}
 
 {file_contents}
 
@@ -138,7 +132,7 @@ line: 156
 Return just the location(s)
 """
     obtain_relevant_code_combine_top_n_no_line_number_prompt = """
-Please review the following GitHub problem description, fail to pass test patch, and relevant files, and provide a set of locations that need to be edited to fix the issue.
+Please review the following GitHub problem description, {test_patch_str}and relevant files, and provide a set of locations that need to be edited to fix the issue.
 The locations can be specified as class, method, or function names that require modification.
 
 ### GitHub Problem Description ###
@@ -146,10 +140,7 @@ The locations can be specified as class, method, or function names that require 
 
 ###
 
-### Fail to pass unit test patch ###
-{test_patch}
-
-###
+{test_patch_prompt}
 
 ###
 {file_contents}
@@ -174,7 +165,7 @@ function: my_function2
 Return just the location(s)
 """
     obtain_relevant_functions_from_compressed_files_prompt = """
-Please look through the following GitHub problem description, fail to pass test patch, and the skeleton of relevant files.
+Please look through the following GitHub problem description, {test_patch_str}and the skeleton of relevant files.
 Provide a thorough set of locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related functions and classes.
 
 ### GitHub Problem Description ###
@@ -182,10 +173,7 @@ Provide a thorough set of locations that need inspection or editing to fix the p
 
 ###
 
-### Fail to pass unit test patch ###
-{test_patch}
-
-###
+{test_patch_prompt}
 
 ###
 {file_contents}
@@ -208,7 +196,7 @@ function: my_function
 Return just the location(s)
 """
     obtain_relevant_functions_and_vars_from_compressed_files_prompt_more = """
-Please look through the following GitHub Problem Description, fail to pass test patch, and the Skeleton of Relevant Files.
+Please look through the following GitHub Problem Description, {test_patch_str}and the Skeleton of Relevant Files.
 Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
 For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
 
@@ -217,10 +205,7 @@ For each location you provide, either give the name of the class, the name of a 
 
 ###
 
-### Fail to pass unit test patch ###
-{test_patch}
-
-###
+{test_patch_prompt}
 
 ### Skeleton of Relevant Files ###
 {file_contents}
@@ -257,13 +242,14 @@ Return just the locations.
         structure,
         problem_statement,
         test_patch,
+        use_test_patch,
         model_name,
         backend,
         logger,
         match_partial_paths,
         **kwargs,
     ):
-        super().__init__(instance_id, structure, problem_statement, test_patch)
+        super().__init__(instance_id, structure, problem_statement, test_patch, use_test_patch)
         self.max_tokens = 300
         self.model_name = model_name
         self.backend = backend
@@ -285,7 +271,8 @@ Return just the locations.
 
         message = self.obtain_relevant_files_prompt.format(
             problem_statement=self.problem_statement,
-            test_patch=self.test_patch,
+            test_patch_prompt=self.test_patch_prompt,
+            test_patch_str=self.test_patch_str,
             structure=show_project_structure(self.structure).strip(),
         ).strip()
         self.logger.info(f"prompting with message:\n{message}")
@@ -367,7 +354,8 @@ Return just the locations.
 
         message = self.obtain_relevant_code_combine_top_n_prompt.format(
             problem_statement=self.problem_statement,
-            test_patch=self.test_patch,
+            test_patch_prompt=self.test_patch_prompt,
+            test_patch_str=self.test_patch_str,
             file_contents=file_contents,
         ).strip()
         print(f"prompting with message:\n{message}")
@@ -420,7 +408,7 @@ Return just the locations.
             self.obtain_relevant_functions_and_vars_from_compressed_files_prompt_more
         )
         message = template.format(
-            problem_statement=self.problem_statement, test_patch=self.test_patch, file_contents=file_contents
+            problem_statement=self.problem_statement, test_patch_prompt=self.test_patch_prompt, test_patch_str=self.test_patch_str, file_contents=file_contents
         )
 
         def message_too_long(message):
@@ -433,7 +421,7 @@ Return just the locations.
             contents = contents[:-1]
             file_contents = "".join(contents)
             message = template.format(
-                problem_statement=self.problem_statement, test_patch=self.test_patch, file_contents=file_contents
+                problem_statement=self.problem_statement, test_patch_prompt=self.test_patch_prompt, test_patch_str=self.test_patch_str, file_contents=file_contents
             )  # Recreate message
 
         if message_too_long(message):
@@ -517,7 +505,7 @@ Return just the locations.
         else:
             template = self.obtain_relevant_code_combine_top_n_prompt
         message = template.format(
-            problem_statement=self.problem_statement, test_patch=self.test_patch, file_contents=topn_content
+            problem_statement=self.problem_statement, test_patch_prompt=self.test_patch_prompt, test_patch_str=self.test_patch_str, file_contents=topn_content
         )
         self.logger.info(f"prompting with message:\n{message}")
         self.logger.info("=" * 80)

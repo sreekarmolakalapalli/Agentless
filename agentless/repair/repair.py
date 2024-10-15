@@ -28,6 +28,13 @@ from agentless.util.preprocess_data import (
 )
 from agentless.util.utils import load_jsonl, setup_logger
 
+test_patch_prompt = """
+We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
+--- BEGIN PATCH ---
+{test_patch}
+--- END PATCH ---
+"""
+
 repair_relevant_file_instruction = """
 Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
 """
@@ -47,10 +54,7 @@ We are currently solving the following issue within our repository. Here is the 
 {problem_statement}
 --- END ISSUE ---
 
-We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
---- BEGIN PATCH ---
-{test_patch}
---- END PATCH ---
+{test_patch_prompt}
 
 {repair_relevant_file_instruction}
 --- BEGIN FILE ---
@@ -82,10 +86,7 @@ We are currently solving the following issue within our repository. Here is the 
 {problem_statement}
 --- END ISSUE ---
 
-We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
---- BEGIN PATCH ---
-{test_patch}
---- END PATCH ---
+{test_patch_prompt}
 
 {repair_relevant_file_instruction}
 --- BEGIN FILE ---
@@ -117,10 +118,7 @@ We are currently solving the following issue within our repository. Here is the 
 {problem_statement}
 --- END ISSUE ---
 
-We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
---- BEGIN PATCH ---
-{test_patch}
---- END PATCH ---
+{test_patch_prompt}
 
 {repair_relevant_file_instruction}
 --- BEGIN FILE ---
@@ -356,7 +354,7 @@ def process_loc(loc, args, swe_bench_data, prev_o):
     message = prompt_template.format(
         repair_relevant_file_instruction=file_instruction,
         problem_statement=problem_statement,
-        test_patch=test_patch,
+        test_patch_prompt=test_patch_prompt.format(test_patch=test_patch) if args.use_test_patch else "",
         content=topn_content.rstrip(),
     ).strip()
     logger.info(f"prompting with message:\n{message}")
@@ -722,6 +720,10 @@ def main():
     )
     parser.add_argument(
         "--mock", action="store_true", help="Mock run to compute prompt tokens."
+    )
+    parser.add_argument(
+        "--use_test_patch",
+        action="store_true"
     )
 
     args = parser.parse_args()

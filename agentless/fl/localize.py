@@ -83,6 +83,7 @@ def localize_instance(
             structure,
             problem_statement,
             test_patch,
+            args.use_test_patch,
             args.model,
             args.backend,
             logger,
@@ -115,6 +116,7 @@ def localize_instance(
                 structure,
                 problem_statement,
                 test_patch,
+                args.use_test_patch,
                 args.model,
                 args.backend,
                 logger,
@@ -143,6 +145,7 @@ def localize_instance(
             structure,
             problem_statement,
             test_patch,
+            args.use_test_patch,
             args.model,
             args.backend,
             logger,
@@ -165,7 +168,7 @@ def localize_instance(
             sticky_scroll=args.sticky_scroll,
             mock=args.mock,
             temperature=args.temperature,
-            num_samples=args.num_samples,
+            num_samples=args.num_samples
         )
         additional_artifact_loc_edit_location = [additional_artifact_loc_edit_location]
 
@@ -334,6 +337,10 @@ def main():
     )
     parser.add_argument(
         "--backend", type=str, default="openai", choices=["openai", "deepseek"]
+    )
+    parser.add_argument(
+        "--use_test_patch",
+        action="store_true"
     )
 
     args = parser.parse_args()
