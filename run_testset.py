@@ -1,6 +1,7 @@
 import argparse
 import os
 import subprocess
+import sys
 
 
 def read_problems(input_file):
@@ -36,39 +37,60 @@ def run_command(command):
 
 def process_instances(instance_ids, output_folder):
     """
-    Process each instance ID by creating a corresponding result folder.
+    Process each instance ID by creating a corresponding result folder and running various commands.
 
     Args:
     instance_ids (list): List of instance IDs to process.
     output_folder (str): Path to the main output folder.
     """
+    # Add the parent directory of 'agentless' to the Python path
+    agentless_parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    sys.path.insert(0, agentless_parent_dir)
+    
     for instance_id in instance_ids:
         result_folder = os.path.join(output_folder, f"result_{instance_id}")
         os.makedirs(result_folder, exist_ok=True)
         print(f"Created folder: {result_folder}")
 
-        localize_files_command = f"""python agentless/fl/localize.py --file_level --related_level --fine_grain_line_level \
+        commands = [
+            ("Localize Files", f"""python -m agentless.fl.localize --file_level --related_level --fine_grain_line_level \
                                 --output_folder {result_folder} --top_n 3 \
                                 --compress \
+                                --target_id={instance_id} \
                                 --context_window=10 \
                                 --temperature 0.8 \
-                                --num_samples 4"""
+                                --num_samples 4"""),
+            
+            ("Merge Localize", f"""python -m agentless.fl.localize --merge \
+                                --output_folder {os.path.join(result_folder, "location_merged")} \
+                                --start_file {os.path.join(result_folder, "loc_outputs.jsonl")} \
+                                --num_samples 4"""),
+            
+            ("Repair 0-1", f"""python -m agentless.repair.repair --loc_file {os.path.join(result_folder, "location_merged", "loc_merged_0-1_outputs.jsonl")} \
+                                  --output_folder {os.path.join(result_folder, "repair_run_1")} \
+                                  --loc_interval --top_n=3 --context_window=10 \
+                                  --max_samples 21  --cot --diff_format \
+                                  --gen_and_process """),
+            
+            ("Repair 2-3", f"""python -m agentless.repair.repair --loc_file {os.path.join(result_folder, "location_merged", "loc_merged_2-3_outputs.jsonl")} \
+                                  --output_folder {os.path.join(result_folder, "repair_run_2")} \
+                                  --loc_interval --top_n=3 --context_window=10 \
+                                  --max_samples 21  --cot --diff_format \
+                                  --gen_and_process """),
+            
+            ("Rerank", f"""python -m agentless.repair.rerank --patch_folder {os.path.join(result_folder, "repair_run_1")},{os.path.join(result_folder, "repair_run_2")} --num_samples 42 --deduplicate --plausible""")
+        ]
 
-        run_command(localize_files_command) # runs the localize files command
+        for command_name, command in commands:
+            print(f"\nExecuting {command_name} command:")
+            print(f"Command: {command}")
+            output = run_command(command)
+            print(f"Output:\n{output}")
 
-        #This will save all the localized locations in results/location/loc_outputs.jsonl with 
-        # the logs saved in results/location/localize.log
+        print(f"Successfully completed {instance_id}!")
+        break
 
-        # then we need to perform merging to form a bigger list of edit locations
-
-    
-
-        merge_localize_command = f"""python agentless/fl/localize.py --merge \
-                                --output_folder results/location_merged \
-                                --start_file results/location/loc_outputs.jsonl \
-                                --num_samples 4"""
-
-
+    print(f"Processed all {len(instance_ids)} instance IDs.")
 
 def main():
     """
