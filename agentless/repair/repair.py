@@ -314,6 +314,7 @@ def process_loc(loc, args, swe_bench_data, prev_o):
                 break
 
         assert content is not None, f"{pred_file} file not found"
+    
     # Construct top-n file context
     file_to_edit_locs = dict()
     for i, pred_file in enumerate(pred_files):
