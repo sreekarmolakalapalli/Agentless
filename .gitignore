@@ -178,8 +178,8 @@ get_repo_structure/test_repo/
 results/
 
 # data files
-*.jsonl
-*.json
+launch.json
 
-# Jupyter Notebooks
-*.ipynb
+
+# DS Store
+.DS_Store
