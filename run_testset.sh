@@ -1,10 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 
 # Read in test instance ids into an array
 mapfile -t instance_ids < test_instance_ids.txt
 # printf '%s\n' "${instance_ids[@]}"
 
-result_folder="results"
+result_folder="results/oct18run/"
 
 # TODO: skip instance id folders that already exist
 for instance_id in "${instance_ids[@]}"
@@ -34,7 +34,8 @@ do
 
     # Rerank
     python -m agentless.repair.rerank --patch_folder $result_folder/$instance_id/repair_no_test_patch \
-                                    --output_file $result_folder/$instance_id/all_preds_no_test_patch.json
+                                    --output_file $result_folder/all_preds_no_test_patch.jsonl \
+                                    --num_samples 10 \
                                     --deduplicate
     
     # Repair with test patch
@@ -42,15 +43,16 @@ do
                                     --output_folder $result_folder/$instance_id/repair_with_test_patch \
                                     --loc_interval --top_n=3 --context_window=10 \
                                     --max_samples 10  --cot --diff_format \
-                                    --gen_and_process
+                                    --gen_and_process \
                                     --use_test_patch
 
     # Rerank with test patch
     python -m agentless.repair.rerank --patch_folder $result_folder/$instance_id/repair_with_test_patch \
-                                    --output_file $result_folder/$instance_id/all_preds_with_test_patch.json
+                                    --output_file $result_folder/all_preds_with_test_patch.jsonl \
+                                    --num_samples 10 \
+                                    --deduplicate
     
     printf "\n"
-exit 0
 done
 
             
