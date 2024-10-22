@@ -1,0 +1,2511 @@
+2024-10-18 14:09:03,503 - INFO - ================ repairing astropy__astropy-6938 ================
+2024-10-18 14:09:20,494 - INFO - prompting with message:
+We are currently solving the following issue within our repository. Here is the issue text:
+--- BEGIN ISSUE ---
+Possible bug in io.fits related to D exponents
+I came across the following code in ``fitsrec.py``:
+
+```python
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+```
+
+I think this may be incorrect because as far as I can tell ``replace`` is not an in-place operation for ``chararray`` (it returns a copy). Commenting out this code doesn't cause any tests to fail so I think this code isn't being tested anyway.
+
+--- END ISSUE ---
+
+
+
+
+Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
+
+--- BEGIN FILE ---
+```
+### astropy/io/fits/fitsrec.py
+...
+
+            # ASCII table does not have Boolean type
+            elif _bool and name in self._converted:
+                choices = (np.array([ord('F')], dtype=np.int8)[0],
+                           np.array([ord('T')], dtype=np.int8)[0])
+                raw_field[:] = np.choose(field, choices)
+
+        # Store the updated heapsize
+        self._heapsize = heapsize
+
+    def _scale_back_strings(self, col_idx, input_field, output_field):
+        # There are a few possibilities this has to be able to handle properly
+        # The input_field, which comes from the _converted column is of dtype
+        # 'Un' so that elements read out of the array are normal str
+        # objects (i.e. unicode strings)
+        #
+        # At the other end the *output_field* may also be of type 'S' or of
+        # type 'U'.  It will *usually* be of type 'S' because when reading
+        # an existing FITS table the raw data is just ASCII strings, and
+        # represented in Numpy as an S array.  However, when a user creates
+        # a new table from scratch, they *might* pass in a column containing
+        # unicode strings (dtype 'U').  Therefore the output_field of the
+        # raw array is actually a unicode array.  But we still want to make
+        # sure the data is encodable as ASCII.  Later when we write out the
+        # array we use, in the dtype 'U' case, a different write routine
+        # that writes row by row and encodes any 'U' columns to ASCII.
+
+        # If the output_field is non-ASCII we will worry about ASCII encoding
+        # later when writing; otherwise we can do it right here
+        if input_field.dtype.kind == 'U' and output_field.dtype.kind == 'S':
+            try:
+                _ascii_encode(input_field, out=output_field)
+            except _UnicodeArrayEncodeError as exc:
+                raise ValueError(
+                    "Could not save column '{0}': Contains characters that "
+                    "cannot be encoded as ASCII as required by FITS, starting "
+                    "at the index {1!r} of the column, and the index {2} of "
+                    "the string at that location.".format(
+                        self._coldefs[col_idx].name,
+                        exc.index[0] if len(exc.index) == 1 else exc.index,
+                        exc.start))
+        else:
+            # Otherwise go ahead and do a direct copy into--if both are type
+            # 'U' we'll handle encoding later
+            input_field = input_field.flatten().view(output_field.dtype)
+            output_field.flat[:] = input_field
+
+        # Ensure that blanks at the end of each string are
+        # converted to nulls instead of spaces, see Trac #15
+        # and #111
+        _rstrip_inplace(output_field)
+
+    def _scale_back_ascii(self, col_idx, input_field, output_field):
+        """
+        Convert internal array values back to ASCII table representation.
+
+        The ``input_field`` is the internal representation of the values, and
+        the ``output_field`` is the character array representing the ASCII
+        output that will be written.
+        """
+
+...
+                    "{}.".format(value, spans[col_idx]))
+
+            if trailing_decimal and value[0] == ' ':
+                # We have some extra space in the field for the trailing
+                # decimal point
+                value = value[1:] + '.'
+
+            output_field[jdx] = value
+
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+
+
+def _get_recarray_field(array, key):
+    """
+    Compatibility function for using the recarray base class's field method.
+    This incorporates the legacy functionality of returning string arrays as
+    Numeric-style chararray objects.
+    """
+
+    # Numpy >= 1.10.dev recarray no longer returns chararrays for strings
+...
+```
+--- END FILE ---
+
+Please first localize the bug based on the issue statement, and then generate *SEARCH/REPLACE* edits to fix the issue.
+
+Every *SEARCH/REPLACE* edit must use this format:
+1. The file path
+2. The start of search block: <<<<<<< SEARCH
+3. A contiguous chunk of lines to search for in the existing source code
+4. The dividing line: =======
+5. The lines to replace into the source code
+6. The end of the replace block: >>>>>>> REPLACE
+
+Here is an example:
+
+```python
+### mathweb/flask/app.py
+<<<<<<< SEARCH
+from flask import Flask
+=======
+import math
+from flask import Flask
+>>>>>>> REPLACE
+```
+
+Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
+Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
+2024-10-18 14:09:20,544 - INFO - Creating API request
+2024-10-18 14:09:23,295 - INFO - API response ChatCompletion(id='chatcmpl-AJoVkDQ7JCFPbkEFPGW4xK01B7YMC', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, the bug is in the `fitsrec.py` file where the `replace` method is used incorrectly on `output_field`. The `replace` method does not perform an in-place replacement for `chararray` objects, and instead, it returns a new array. Therefore, the correct approach is to assign the result of the `replace` method back to `output_field`.\n\nHere is the *SEARCH/REPLACE* edit to fix the issue:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis change ensures that the `output_field` is updated with the result of the `replace` method.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285760, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=210, prompt_tokens=1273, total_tokens=1483, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:09:23,344 - INFO - Creating API request
+2024-10-18 14:09:27,031 - INFO - API response ChatCompletion(id='chatcmpl-AJoVneHNtvA1rXPubVigQDvIlJqUy', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement and the code segment provided, it seems the problem is with the `replace` method not being used correctly, as `replace` isn’t an in-place operation and returns a new string instead. You need to assign the result back to `output_field` or if it’s an array, ensure each element is updated correctly.\n\nHere is the needed SEARCH/REPLACE edit:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis modification ensures that the `replace` method's result is actually assigned back to `output_field`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content="The issue mentioned that the `replace` method is not in-place for `chararray`, and the correct behavior should involve updating the `output_field` variable with the modified content. We need to fix this by assigning the result of the `replace` method back to `output_field`.\n\nHere is the *SEARCH/REPLACE* edit to correct the issue:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, the problem is in the `fitsrec.py` file, specifically in the `_scale_back_ascii` method where the `replace` method is used on `output_field`. As noted, `replace` is not an in-place operation for `chararray`. This means the result of `replace` needs to be reassigned to `output_field`.\n\nHere are the necessary changes to fix the bug:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis change ensures that the result of `replace` is correctly assigned back to `output_field`, so the `D` exponent will correctly replace the `E` exponent in the array.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content="Based on the issue description and the provided code segment, the suspected bug is that the `replace` method is being used incorrectly, as it does not perform an in-place modification on a `chararray`. Instead, it returns a new array with the modifications. Therefore, the `output_field` should be reassigned with the result of `replace`.\n\nHere's the necessary *SEARCH/REPLACE* edit to fix the issue:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis modification ensures that `output_field` is updated with the modified array.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=4, logprobs=None, message=ChatCompletionMessage(content="The bug is in `astropy/io/fits/fitsrec.py`. The issue is that `output_field.replace()` does not modify `output_field` in place, which means the result needs to be assigned back to `output_field`.\n\nHere are the *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=5, logprobs=None, message=ChatCompletionMessage(content="The issue statement indicates a bug in the `fitsrec.py` file, specifically in the part where the `replace` method is used on `output_field`, which is not in-place for `chararray`. Instead, `output_field` should be reassigned to the result of `replace`.\n\nLet's generate the `SEARCH/REPLACE` edit to fix this issue.\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=6, logprobs=None, message=ChatCompletionMessage(content="The issue is related to the use of the `replace` method on an `output_field` which seems to be a `chararray` and `replace` is not an in-place operation for `chararray`. This means the code is not modifying the `output_field` as intended. The fix would involve ensuring that the result of `replace` is assigned back to `output_field`.\n\nHere is the *SEARCH/REPLACE* edit to fix the issue in `fitsrec.py`:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis change ensures that the `output_field` is updated with the result of the `replace` method.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=7, logprobs=None, message=ChatCompletionMessage(content="To address the issue mentioned regarding the incorrect use of `replace` on `chararray`, we need to make sure that the `replace` method correctly updates the `output_field` by re-assigning it to the modified array, since `replace` returns a new array and does not modify the original in-place.\n\nHere are the *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis change ensures that the `output_field` is correctly updated with the replaced values.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=8, logprobs=None, message=ChatCompletionMessage(content="To address the issue mentioned in the repository regarding the `replace` method in `fitsrec.py`, we will modify the `_scale_back_ascii` method. The `replace` method is not an in-place operation, so we need to ensure that the result is stored back into `output_field`.\n\nHere is the *SEARCH/REPLACE* edit to fix the issue:\n\n```python\n### astropy/io/fits/fitsrec.py\n<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE\n```\n\nThis change ensures that the result of the `replace` operation is assigned back to `output_field`, thereby fixing the potential bug as indicated in the issue description.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285763, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=1539, prompt_tokens=1273, total_tokens=2812, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:09:27,031 - INFO - raw output:
+Based on the issue statement, the bug is in the `fitsrec.py` file where the `replace` method is used incorrectly on `output_field`. The `replace` method does not perform an in-place replacement for `chararray` objects, and instead, it returns a new array. Therefore, the correct approach is to assign the result of the `replace` method back to `output_field`.
+
+Here is the *SEARCH/REPLACE* edit to fix the issue:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This change ensures that the `output_field` is updated with the result of the `replace` method.
+2024-10-18 14:09:27,031 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,031 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,031 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,031 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,031 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,031 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,033 - INFO - extracted patch:
+2024-10-18 14:09:27,033 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,034 - INFO - raw output:
+Based on the issue statement and the code segment provided, it seems the problem is with the `replace` method not being used correctly, as `replace` isn’t an in-place operation and returns a new string instead. You need to assign the result back to `output_field` or if it’s an array, ensure each element is updated correctly.
+
+Here is the needed SEARCH/REPLACE edit:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This modification ensures that the `replace` method's result is actually assigned back to `output_field`.
+2024-10-18 14:09:27,034 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,034 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,034 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,034 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,034 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,034 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,036 - INFO - extracted patch:
+2024-10-18 14:09:27,036 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,036 - INFO - raw output:
+The issue mentioned that the `replace` method is not in-place for `chararray`, and the correct behavior should involve updating the `output_field` variable with the modified content. We need to fix this by assigning the result of the `replace` method back to `output_field`.
+
+Here is the *SEARCH/REPLACE* edit to correct the issue:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+2024-10-18 14:09:27,036 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,036 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,036 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,036 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,036 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,036 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,039 - INFO - extracted patch:
+2024-10-18 14:09:27,039 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,039 - INFO - raw output:
+Based on the issue statement, the problem is in the `fitsrec.py` file, specifically in the `_scale_back_ascii` method where the `replace` method is used on `output_field`. As noted, `replace` is not an in-place operation for `chararray`. This means the result of `replace` needs to be reassigned to `output_field`.
+
+Here are the necessary changes to fix the bug:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This change ensures that the result of `replace` is correctly assigned back to `output_field`, so the `D` exponent will correctly replace the `E` exponent in the array.
+2024-10-18 14:09:27,039 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,039 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,039 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,039 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,039 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,039 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,041 - INFO - extracted patch:
+2024-10-18 14:09:27,041 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,041 - INFO - raw output:
+Based on the issue description and the provided code segment, the suspected bug is that the `replace` method is being used incorrectly, as it does not perform an in-place modification on a `chararray`. Instead, it returns a new array with the modifications. Therefore, the `output_field` should be reassigned with the result of `replace`.
+
+Here's the necessary *SEARCH/REPLACE* edit to fix the issue:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This modification ensures that `output_field` is updated with the modified array.
+2024-10-18 14:09:27,041 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,041 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,041 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,042 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,042 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,042 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,044 - INFO - extracted patch:
+2024-10-18 14:09:27,044 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,044 - INFO - raw output:
+The bug is in `astropy/io/fits/fitsrec.py`. The issue is that `output_field.replace()` does not modify `output_field` in place, which means the result needs to be assigned back to `output_field`.
+
+Here are the *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+2024-10-18 14:09:27,044 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,044 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,044 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,044 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,044 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,044 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,046 - INFO - extracted patch:
+2024-10-18 14:09:27,046 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,047 - INFO - raw output:
+The issue statement indicates a bug in the `fitsrec.py` file, specifically in the part where the `replace` method is used on `output_field`, which is not in-place for `chararray`. Instead, `output_field` should be reassigned to the result of `replace`.
+
+Let's generate the `SEARCH/REPLACE` edit to fix this issue.
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+2024-10-18 14:09:27,047 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,047 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,047 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,047 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,047 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,047 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,049 - INFO - extracted patch:
+2024-10-18 14:09:27,049 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,049 - INFO - raw output:
+The issue is related to the use of the `replace` method on an `output_field` which seems to be a `chararray` and `replace` is not an in-place operation for `chararray`. This means the code is not modifying the `output_field` as intended. The fix would involve ensuring that the result of `replace` is assigned back to `output_field`.
+
+Here is the *SEARCH/REPLACE* edit to fix the issue in `fitsrec.py`:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This change ensures that the `output_field` is updated with the result of the `replace` method.
+2024-10-18 14:09:27,049 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,049 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,049 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,049 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,049 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,049 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,052 - INFO - extracted patch:
+2024-10-18 14:09:27,052 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,052 - INFO - raw output:
+To address the issue mentioned regarding the incorrect use of `replace` on `chararray`, we need to make sure that the `replace` method correctly updates the `output_field` by re-assigning it to the modified array, since `replace` returns a new array and does not modify the original in-place.
+
+Here are the *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This change ensures that the `output_field` is correctly updated with the replaced values.
+2024-10-18 14:09:27,052 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,052 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,052 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,052 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,052 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,053 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,056 - INFO - extracted patch:
+2024-10-18 14:09:27,056 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,056 - INFO - raw output:
+To address the issue mentioned in the repository regarding the `replace` method in `fitsrec.py`, we will modify the `_scale_back_ascii` method. The `replace` method is not an in-place operation, so we need to ensure that the result is stored back into `output_field`.
+
+Here is the *SEARCH/REPLACE* edit to fix the issue:
+
+```python
+### astropy/io/fits/fitsrec.py
+<<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+```
+
+This change ensures that the result of the `replace` operation is assigned back to `output_field`, thereby fixing the potential bug as indicated in the issue description.
+2024-10-18 14:09:27,057 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,057 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,057 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,057 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,057 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,057 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,059 - INFO - extracted patch:
+2024-10-18 14:09:27,059 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,659 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,659 - INFO - === file_to_commands: ===
+2024-10-18 14:09:27,659 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,659 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:27,659 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,659 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:27,659 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,659 - INFO - === edit_commands: ===
+2024-10-18 14:09:27,659 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,659 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:27,659 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,659 - INFO - 
+----------------------------------------
+2024-10-18 14:09:27,661 - INFO - extracted patch:
+2024-10-18 14:09:27,661 - INFO - extracted patch:
+2024-10-18 14:09:27,661 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:27,661 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:28,574 - INFO - === file_to_commands: ===
+2024-10-18 14:09:28,574 - INFO - === file_to_commands: ===
+2024-10-18 14:09:28,574 - INFO - === file_to_commands: ===
+2024-10-18 14:09:28,574 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:28,574 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:28,574 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:28,574 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:28,574 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:28,574 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:28,574 - INFO - === edit_commands: ===
+2024-10-18 14:09:28,574 - INFO - === edit_commands: ===
+2024-10-18 14:09:28,574 - INFO - === edit_commands: ===
+2024-10-18 14:09:28,574 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:28,574 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:28,574 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:28,574 - INFO - 
+----------------------------------------
+2024-10-18 14:09:28,574 - INFO - 
+----------------------------------------
+2024-10-18 14:09:28,574 - INFO - 
+----------------------------------------
+2024-10-18 14:09:28,576 - INFO - extracted patch:
+2024-10-18 14:09:28,576 - INFO - extracted patch:
+2024-10-18 14:09:28,576 - INFO - extracted patch:
+2024-10-18 14:09:28,576 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:28,576 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:28,576 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:29,358 - INFO - === file_to_commands: ===
+2024-10-18 14:09:29,358 - INFO - === file_to_commands: ===
+2024-10-18 14:09:29,358 - INFO - === file_to_commands: ===
+2024-10-18 14:09:29,358 - INFO - === file_to_commands: ===
+2024-10-18 14:09:29,358 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:29,358 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:29,358 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:29,358 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:29,358 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:29,358 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:29,358 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:29,358 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:29,358 - INFO - === edit_commands: ===
+2024-10-18 14:09:29,358 - INFO - === edit_commands: ===
+2024-10-18 14:09:29,358 - INFO - === edit_commands: ===
+2024-10-18 14:09:29,358 - INFO - === edit_commands: ===
+2024-10-18 14:09:29,358 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:29,358 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:29,358 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:29,358 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:29,358 - INFO - 
+----------------------------------------
+2024-10-18 14:09:29,358 - INFO - 
+----------------------------------------
+2024-10-18 14:09:29,358 - INFO - 
+----------------------------------------
+2024-10-18 14:09:29,358 - INFO - 
+----------------------------------------
+2024-10-18 14:09:29,362 - INFO - extracted patch:
+2024-10-18 14:09:29,362 - INFO - extracted patch:
+2024-10-18 14:09:29,362 - INFO - extracted patch:
+2024-10-18 14:09:29,362 - INFO - extracted patch:
+2024-10-18 14:09:29,362 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:29,362 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:29,362 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:29,362 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,171 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,171 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,171 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,171 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,171 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,171 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,171 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,171 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,171 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,171 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,171 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,171 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,171 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,171 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,171 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,171 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,171 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,171 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,171 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,171 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,171 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,171 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,171 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,171 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,171 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,171 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,171 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,171 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,171 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,171 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,174 - INFO - extracted patch:
+2024-10-18 14:09:30,174 - INFO - extracted patch:
+2024-10-18 14:09:30,174 - INFO - extracted patch:
+2024-10-18 14:09:30,174 - INFO - extracted patch:
+2024-10-18 14:09:30,174 - INFO - extracted patch:
+2024-10-18 14:09:30,174 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,174 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,174 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,174 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,174 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,897 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,897 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,897 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,897 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,897 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,897 - INFO - === file_to_commands: ===
+2024-10-18 14:09:30,897 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,897 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,897 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,897 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,897 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,897 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:30,897 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,897 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,897 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,897 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,897 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,897 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:30,897 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,897 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,897 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,897 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,897 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,897 - INFO - === edit_commands: ===
+2024-10-18 14:09:30,897 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,897 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,897 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,897 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,897 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,897 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:30,897 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,897 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,897 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,897 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,897 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,897 - INFO - 
+----------------------------------------
+2024-10-18 14:09:30,900 - INFO - extracted patch:
+2024-10-18 14:09:30,900 - INFO - extracted patch:
+2024-10-18 14:09:30,900 - INFO - extracted patch:
+2024-10-18 14:09:30,900 - INFO - extracted patch:
+2024-10-18 14:09:30,900 - INFO - extracted patch:
+2024-10-18 14:09:30,900 - INFO - extracted patch:
+2024-10-18 14:09:30,900 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,900 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,900 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,900 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,900 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:30,900 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - === file_to_commands: ===
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,681 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - === edit_commands: ===
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,682 - INFO - 
+----------------------------------------
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - extracted patch:
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:31,684 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - === file_to_commands: ===
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - === edit_commands: ===
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - <<<<<<< SEARCH
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,461 - INFO - 
+----------------------------------------
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - extracted patch:
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:32,464 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - === file_to_commands: ===
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - === edit_commands: ===
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - <<<<<<< SEARCH
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,277 - INFO - 
+----------------------------------------
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - extracted patch:
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:33,280 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,023 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,024 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - extracted patch:
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,026 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - === file_to_commands: ===
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - {
+  "'astropy/io/fits/fitsrec.py'": [
+    "<<<<<<< SEARCH\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field.replace(encode_ascii('E'), encode_ascii('D'))\n=======\n        # Replace exponent separator in floating point numbers\n        if 'D' in format:\n            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,735 - INFO - === edited_file: 'astropy/io/fits/fitsrec.py' ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - === edit_commands: ===
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - <<<<<<< SEARCH
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+=======
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+>>>>>>> REPLACE
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,736 - INFO - 
+----------------------------------------
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - extracted patch:
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2024-10-18 14:09:34,738 - INFO - --- astropy/io/fits/fitsrec.py
++++ astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):

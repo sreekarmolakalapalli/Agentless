@@ -1,0 +1,3557 @@
+2024-10-18 13:23:30,434 - INFO - ================ repairing pytest-dev__pytest-5227 ================
+2024-10-18 13:23:37,619 - INFO - prompting with message:
+We are currently solving the following issue within our repository. Here is the issue text:
+--- BEGIN ISSUE ---
+Improve default logging format
+Currently it is:
+
+> DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+
+I think `name` (module name) would be very useful here, instead of just the base filename.
+
+(It might also be good to have the relative path there (maybe at the end), but it is usually still very long (but e.g. `$VIRTUAL_ENV` could be substituted therein))
+
+Currently it would look like this:
+```
+utils.py                   114 DEBUG    (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+multipart.py               604 DEBUG    Calling on_field_start with no data
+```
+
+
+Using `DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"` instead:
+
+```
+DEBUG    django.db.backends:utils.py:114 (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data
+```
+
+--- END ISSUE ---
+
+
+
+
+Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
+
+--- BEGIN FILE ---
+```
+### src/_pytest/logging.py
+...
+from contextlib import contextmanager
+
+import py
+import six
+
+import pytest
+from _pytest.compat import dummy_context_manager
+from _pytest.config import create_terminal_writer
+from _pytest.pathlib import Path
+
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+
+
+class ColoredLevelFormatter(logging.Formatter):
+    """
+    Colorize the %(levelname)..s part of the log format passed to __init__.
+    """
+
+    LOGLEVEL_COLOROPTS = {
+        logging.CRITICAL: {"red"},
+...
+# run after terminalreporter/capturemanager are configured
+@pytest.hookimpl(trylast=True)
+def pytest_configure(config):
+    config.pluginmanager.register(LoggingPlugin(config), "logging-plugin")
+
+
+class LoggingPlugin(object):
+    """Attaches to the logging module and captures log messages for each test.
+    """
+
+    def __init__(self, config):
+        """Creates a new plugin to capture log messages.
+
+        The formatter can be safely shared across all handlers so
+        create a single one for the entire test session here.
+        """
+        self._config = config
+
+        # enable verbose output automatically if live logging is enabled
+        if self._log_cli_enabled() and config.getoption("verbose") < 1:
+            config.option.verbose = 1
+
+        self.print_logs = get_option_ini(config, "log_print")
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+        self.log_level = get_actual_log_level(config, "log_level")
+
+        self.log_file_level = get_actual_log_level(config, "log_file_level")
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+        self.log_file_date_format = get_option_ini(
+            config, "log_file_date_format", "log_date_format"
+        )
+        self.log_file_formatter = logging.Formatter(
+            self.log_file_format, datefmt=self.log_file_date_format
+        )
+
+        log_file = get_option_ini(config, "log_file")
+        if log_file:
+            self.log_file_handler = logging.FileHandler(
+                log_file, mode="w", encoding="UTF-8"
+            )
+            self.log_file_handler.setFormatter(self.log_file_formatter)
+        else:
+            self.log_file_handler = None
+
+        self.log_cli_handler = None
+
+        self.live_logs_context = lambda: dummy_context_manager()
+        # Note that the lambda for the live_logs_context is needed because
+        # live_logs_context can otherwise not be entered multiple times due
+        # to limitations of contextlib.contextmanager.
+
+        if self._log_cli_enabled():
+            self._setup_cli_logging()
+
+    def _setup_cli_logging(self):
+        config = self._config
+        terminal_reporter = config.pluginmanager.get_plugin("terminalreporter")
+        if terminal_reporter is None:
+            # terminal reporter is disabled e.g. by pytest-xdist.
+            return
+
+        capture_manager = config.pluginmanager.get_plugin("capturemanager")
+        # if capturemanager plugin is disabled, live logging still works.
+        log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+        log_cli_date_format = get_option_ini(
+            config, "log_cli_date_format", "log_date_format"
+        )
+        if (
+            config.option.color != "no"
+            and ColoredLevelFormatter.LEVELNAME_FMT_REGEX.search(log_cli_format)
+        ):
+            log_cli_formatter = ColoredLevelFormatter(
+                create_terminal_writer(config),
+                log_cli_format,
+                datefmt=log_cli_date_format,
+            )
+        else:
+            log_cli_formatter = logging.Formatter(
+                log_cli_format, datefmt=log_cli_date_format
+            )
+        log_cli_level = get_actual_log_level(config, "log_cli_level", "log_level")
+        self.log_cli_handler = log_cli_handler
+        self.live_logs_context = lambda: catching_logs(
+            log_cli_handler, formatter=log_cli_formatter, level=log_cli_level
+        )
+
+    def set_log_path(self, fname):
+        """Public method, which can set filename parameter for
+        Logging.FileHandler(). Also creates parent directory if
+        it does not exist.
+
+        .. warning::
+            Please considered as an experimental API.
+        """
+        fname = Path(fname)
+...
+
+
+### src/_pytest/terminal.py
+...
+        if "KeyboardInterrupt" in msg:
+            if self.config.option.fulltrace:
+                excrepr.toterminal(self._tw)
+            else:
+                excrepr.reprcrash.toterminal(self._tw)
+                self._tw.line(
+                    "(to show a full traceback on KeyboardInterrupt use --fulltrace)",
+                    yellow=True,
+                )
+
+    def _locationline(self, nodeid, fspath, lineno, domain):
+        def mkrel(nodeid):
+            line = self.config.cwd_relative_nodeid(nodeid)
+            if domain and line.endswith(domain):
+                line = line[: -len(domain)]
+                values = domain.split("[")
+                values[0] = values[0].replace(".", "::")  # don't replace '.' in params
+                line += "[".join(values)
+            return line
+
+        # collect_fspath comes from testid which has a "/"-normalized path
+
+        if fspath:
+            res = mkrel(nodeid)
+            if self.verbosity >= 2 and nodeid.split("::")[0] != fspath.replace(
+                "\\", nodes.SEP
+            ):
+                res += " <- " + self.startdir.bestrelpath(fspath)
+        else:
+            res = "[location]"
+        return res + " "
+
+    def _getfailureheadline(self, rep):
+        head_line = rep.head_line
+        if head_line:
+            return head_line
+        return "test session"  # XXX?
+
+    def _getcrashline(self, rep):
+        try:
+            return str(rep.longrepr.reprcrash)
+...
+```
+--- END FILE ---
+
+Please first localize the bug based on the issue statement, and then generate *SEARCH/REPLACE* edits to fix the issue.
+
+Every *SEARCH/REPLACE* edit must use this format:
+1. The file path
+2. The start of search block: <<<<<<< SEARCH
+3. A contiguous chunk of lines to search for in the existing source code
+4. The dividing line: =======
+5. The lines to replace into the source code
+6. The end of the replace block: >>>>>>> REPLACE
+
+Here is an example:
+
+```python
+### mathweb/flask/app.py
+<<<<<<< SEARCH
+from flask import Flask
+=======
+import math
+from flask import Flask
+>>>>>>> REPLACE
+```
+
+Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
+Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
+2024-10-18 13:23:37,675 - INFO - Creating API request
+2024-10-18 13:23:42,328 - INFO - API response ChatCompletion(id='chatcmpl-AJnnWrSIle2XgyTOGA6hNTR6MeaqA', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Based on the issue statement, the bug is related to the default logging format defined in the `src/_pytest/logging.py` file. The current format does not include the module name (`name`), which is requested to be added.\n\nHere are the necessary *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nAdditionally, we need to ensure that the new format is used in the `LoggingPlugin` class where the formatter is set up:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, "log_format"),\n            get_option_ini(config, "log_date_format"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE\n```\n\nAnd similarly for the CLI logging setup:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")\n=======\n        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE\n```\n\nThese changes ensure that the new default logging format is used throughout the logging setup in the `LoggingPlugin` class.', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729283018, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_28a34a3a6a', usage=CompletionUsage(completion_tokens=348, prompt_tokens=1843, total_tokens=2191, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:23:42,453 - INFO - Creating API request
+2024-10-18 13:23:47,780 - INFO - API response ChatCompletion(id='chatcmpl-AJnnbcfb6DIDRQzWN7lbI06jVLi6y', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Based on the issue statement, we need to update the default logging format to include the module name (`name`) along with the filename and other details. The issue specifically mentions changing the `DEFAULT_LOG_FORMAT` in the code. \n\nHere are the *SEARCH/REPLACE* edits:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nThis change addresses the logging format as specified in the issue, providing more detailed information in the logs by including the module name.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content='Based on the issue statement, the improvement requested is to update the default logging format to include the module name (`name`) instead of just the filename (`filename`). This means we need to update the `DEFAULT_LOG_FORMAT` in the `src/_pytest/logging.py` file.\n\nHere are the necessary changes:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nThis change will modify the default logging format to include the log level, module name, filename, and line number before the log message, as suggested in the issue statement.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content='```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content='To address the issue of improving the default logging format, we need to modify the `DEFAULT_LOG_FORMAT` in the `src/_pytest/logging.py` file to include the `%(name)s` which represents the module name. \n\nHere\'s the search and replace edit:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nThis change updates the default logging format to include the module name alongside the filename and line number, and it aligns with the suggested format in the issue text.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=4, logprobs=None, message=ChatCompletionMessage(content='Based on the issue statement, the default logging format should be updated to include the module name (`name`). Here are the required changes:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nAnd, to ensure that the new format is used properly throughout, we need to make sure any references to logging format are updated to use this new default if not already modified:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, "log_format"),\n            get_option_ini(config, "log_date_format"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE\n```\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")\n=======\n        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE\n```\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")\n=======\n        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE\n```\n\nThis ensures that the updated `DEFAULT_LOG_FORMAT` is consistently applied whenever logging configurations are set up. Now the logging statements will include the module name along with the other logging details specified.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=5, logprobs=None, message=ChatCompletionMessage(content='Sure, here is the *SEARCH/REPLACE* edit that should address the issue by updating the logging format.\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nThis change updates the `DEFAULT_LOG_FORMAT` to include the `levelname`, `name`, `filename`, and `lineno` in the specified format. This should address the issue mentioned in the repository.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=6, logprobs=None, message=ChatCompletionMessage(content='To address the issue of improving the default logging format by including the `name` (module name) in the format string, we need to make changes to the `DEFAULT_LOG_FORMAT` definition in `src/_pytest/logging.py`. \n\nHere is the specific *SEARCH/REPLACE* edit:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\nThis change updates the `DEFAULT_LOG_FORMAT` to include the `levelname`, `name`, `filename`, and `lineno` followed by the log `message`. This new format provides more detailed context, including the module name, which can be very useful for debugging and tracing log messages.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=7, logprobs=None, message=ChatCompletionMessage(content='```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=8, logprobs=None, message=ChatCompletionMessage(content='Here are the *SEARCH/REPLACE* edits to update the logging format as described in the issue:\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"\n=======\nDEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"\n>>>>>>> REPLACE\n```\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, "log_format"),\n            get_option_ini(config, "log_date_format"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, "log_format", "log_format"),\n            get_option_ini(config, "log_date_format", "log_date_format"),\n        )\n>>>>>>> REPLACE\n```\n\n```python\n### src/_pytest/logging.py\n<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")\n=======\n        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729283023, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_28a34a3a6a', usage=CompletionUsage(completion_tokens=1597, prompt_tokens=1843, total_tokens=3440, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:23:47,781 - INFO - raw output:
+Based on the issue statement, the bug is related to the default logging format defined in the `src/_pytest/logging.py` file. The current format does not include the module name (`name`), which is requested to be added.
+
+Here are the necessary *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+Additionally, we need to ensure that the new format is used in the `LoggingPlugin` class where the formatter is set up:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+```
+
+And similarly for the CLI logging setup:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+```
+
+These changes ensure that the new default logging format is used throughout the logging setup in the `LoggingPlugin` class.
+2024-10-18 13:23:47,781 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,781 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,781 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,781 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,781 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,781 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,781 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:47,781 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,781 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:47,781 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,784 - INFO - extracted patch:
+2024-10-18 13:23:47,785 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:47,785 - INFO - raw output:
+Based on the issue statement, we need to update the default logging format to include the module name (`name`) along with the filename and other details. The issue specifically mentions changing the `DEFAULT_LOG_FORMAT` in the code. 
+
+Here are the *SEARCH/REPLACE* edits:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+This change addresses the logging format as specified in the issue, providing more detailed information in the logs by including the module name.
+2024-10-18 13:23:47,785 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,785 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,785 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,785 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,785 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,785 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,788 - INFO - extracted patch:
+2024-10-18 13:23:47,788 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,788 - INFO - raw output:
+Based on the issue statement, the improvement requested is to update the default logging format to include the module name (`name`) instead of just the filename (`filename`). This means we need to update the `DEFAULT_LOG_FORMAT` in the `src/_pytest/logging.py` file.
+
+Here are the necessary changes:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+This change will modify the default logging format to include the log level, module name, filename, and line number before the log message, as suggested in the issue statement.
+2024-10-18 13:23:47,788 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,788 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,789 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,789 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,789 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,789 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,792 - INFO - extracted patch:
+2024-10-18 13:23:47,792 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,792 - INFO - raw output:
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+2024-10-18 13:23:47,792 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,792 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,793 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,793 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,793 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,793 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,797 - INFO - extracted patch:
+2024-10-18 13:23:47,797 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,797 - INFO - raw output:
+To address the issue of improving the default logging format, we need to modify the `DEFAULT_LOG_FORMAT` in the `src/_pytest/logging.py` file to include the `%(name)s` which represents the module name. 
+
+Here's the search and replace edit:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+This change updates the default logging format to include the module name alongside the filename and line number, and it aligns with the suggested format in the issue text.
+2024-10-18 13:23:47,798 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,798 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,798 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,798 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,798 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,798 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,801 - INFO - extracted patch:
+2024-10-18 13:23:47,801 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,801 - INFO - raw output:
+Based on the issue statement, the default logging format should be updated to include the module name (`name`). Here are the required changes:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+And, to ensure that the new format is used properly throughout, we need to make sure any references to logging format are updated to use this new default if not already modified:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+```
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+```
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+```
+
+This ensures that the updated `DEFAULT_LOG_FORMAT` is consistently applied whenever logging configurations are set up. Now the logging statements will include the module name along with the other logging details specified.
+2024-10-18 13:23:47,802 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,802 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,802 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,802 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,802 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,802 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,802 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:47,802 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,802 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:47,802 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,802 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:47,802 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,806 - INFO - extracted patch:
+2024-10-18 13:23:47,806 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:47,806 - INFO - raw output:
+Sure, here is the *SEARCH/REPLACE* edit that should address the issue by updating the logging format.
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+This change updates the `DEFAULT_LOG_FORMAT` to include the `levelname`, `name`, `filename`, and `lineno` in the specified format. This should address the issue mentioned in the repository.
+2024-10-18 13:23:47,806 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,806 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,806 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,807 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,807 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,807 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,810 - INFO - extracted patch:
+2024-10-18 13:23:47,811 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,811 - INFO - raw output:
+To address the issue of improving the default logging format by including the `name` (module name) in the format string, we need to make changes to the `DEFAULT_LOG_FORMAT` definition in `src/_pytest/logging.py`. 
+
+Here is the specific *SEARCH/REPLACE* edit:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+This change updates the `DEFAULT_LOG_FORMAT` to include the `levelname`, `name`, `filename`, and `lineno` followed by the log `message`. This new format provides more detailed context, including the module name, which can be very useful for debugging and tracing log messages.
+2024-10-18 13:23:47,811 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,811 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,811 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,812 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,812 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,812 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,815 - INFO - extracted patch:
+2024-10-18 13:23:47,816 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,816 - INFO - raw output:
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+2024-10-18 13:23:47,816 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,816 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,816 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,816 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,816 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,816 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,819 - INFO - extracted patch:
+2024-10-18 13:23:47,819 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:47,819 - INFO - raw output:
+Here are the *SEARCH/REPLACE* edits to update the logging format as described in the issue:
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+```
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+```
+
+```python
+### src/_pytest/logging.py
+<<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+```
+2024-10-18 13:23:47,819 - INFO - === file_to_commands: ===
+2024-10-18 13:23:47,819 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:47,819 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:47,819 - INFO - === edit_commands: ===
+2024-10-18 13:23:47,820 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:47,820 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,820 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:47,820 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,820 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:47,820 - INFO - 
+----------------------------------------
+2024-10-18 13:23:47,823 - INFO - extracted patch:
+2024-10-18 13:23:47,823 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:48,534 - INFO - === file_to_commands: ===
+2024-10-18 13:23:48,534 - INFO - === file_to_commands: ===
+2024-10-18 13:23:48,534 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:48,534 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:48,534 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:48,534 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:48,534 - INFO - === edit_commands: ===
+2024-10-18 13:23:48,534 - INFO - === edit_commands: ===
+2024-10-18 13:23:48,534 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:48,534 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:48,534 - INFO - 
+----------------------------------------
+2024-10-18 13:23:48,534 - INFO - 
+----------------------------------------
+2024-10-18 13:23:48,534 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:48,534 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:48,534 - INFO - 
+----------------------------------------
+2024-10-18 13:23:48,534 - INFO - 
+----------------------------------------
+2024-10-18 13:23:48,534 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:48,534 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:48,534 - INFO - 
+----------------------------------------
+2024-10-18 13:23:48,534 - INFO - 
+----------------------------------------
+2024-10-18 13:23:48,536 - INFO - extracted patch:
+2024-10-18 13:23:48,536 - INFO - extracted patch:
+2024-10-18 13:23:48,536 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:48,536 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:49,909 - INFO - === file_to_commands: ===
+2024-10-18 13:23:49,909 - INFO - === file_to_commands: ===
+2024-10-18 13:23:49,909 - INFO - === file_to_commands: ===
+2024-10-18 13:23:49,910 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:49,910 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:49,910 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:49,910 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:49,910 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:49,910 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:49,910 - INFO - === edit_commands: ===
+2024-10-18 13:23:49,910 - INFO - === edit_commands: ===
+2024-10-18 13:23:49,910 - INFO - === edit_commands: ===
+2024-10-18 13:23:49,911 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:49,911 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:49,911 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:49,911 - INFO - 
+----------------------------------------
+2024-10-18 13:23:49,911 - INFO - 
+----------------------------------------
+2024-10-18 13:23:49,911 - INFO - 
+----------------------------------------
+2024-10-18 13:23:49,916 - INFO - extracted patch:
+2024-10-18 13:23:49,916 - INFO - extracted patch:
+2024-10-18 13:23:49,916 - INFO - extracted patch:
+2024-10-18 13:23:49,916 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:49,916 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:49,916 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:50,501 - INFO - === file_to_commands: ===
+2024-10-18 13:23:50,501 - INFO - === file_to_commands: ===
+2024-10-18 13:23:50,501 - INFO - === file_to_commands: ===
+2024-10-18 13:23:50,501 - INFO - === file_to_commands: ===
+2024-10-18 13:23:50,502 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:50,502 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:50,502 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:50,502 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:50,502 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:50,502 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:50,502 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:50,502 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:50,502 - INFO - === edit_commands: ===
+2024-10-18 13:23:50,502 - INFO - === edit_commands: ===
+2024-10-18 13:23:50,502 - INFO - === edit_commands: ===
+2024-10-18 13:23:50,502 - INFO - === edit_commands: ===
+2024-10-18 13:23:50,502 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:50,502 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:50,502 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:50,502 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:50,502 - INFO - 
+----------------------------------------
+2024-10-18 13:23:50,502 - INFO - 
+----------------------------------------
+2024-10-18 13:23:50,502 - INFO - 
+----------------------------------------
+2024-10-18 13:23:50,502 - INFO - 
+----------------------------------------
+2024-10-18 13:23:50,504 - INFO - extracted patch:
+2024-10-18 13:23:50,504 - INFO - extracted patch:
+2024-10-18 13:23:50,504 - INFO - extracted patch:
+2024-10-18 13:23:50,504 - INFO - extracted patch:
+2024-10-18 13:23:50,504 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:50,504 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:50,504 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:50,504 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,229 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,229 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,229 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,229 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,229 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,230 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,230 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,230 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,230 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,230 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,230 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,230 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,230 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,230 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,230 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,230 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,230 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,230 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,230 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,230 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,230 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,230 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,230 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,230 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,230 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,230 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,230 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,230 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,230 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,230 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,232 - INFO - extracted patch:
+2024-10-18 13:23:51,232 - INFO - extracted patch:
+2024-10-18 13:23:51,232 - INFO - extracted patch:
+2024-10-18 13:23:51,232 - INFO - extracted patch:
+2024-10-18 13:23:51,232 - INFO - extracted patch:
+2024-10-18 13:23:51,232 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,232 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,232 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,232 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,232 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,875 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,875 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,875 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,875 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,875 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,875 - INFO - === file_to_commands: ===
+2024-10-18 13:23:51,875 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,875 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,875 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,875 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,875 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,875 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:51,875 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,875 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,875 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,875 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,875 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,875 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:51,875 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,875 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,875 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,875 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,875 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,875 - INFO - === edit_commands: ===
+2024-10-18 13:23:51,875 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,875 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,875 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,875 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,875 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,875 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:51,875 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,875 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,875 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,875 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,875 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,875 - INFO - 
+----------------------------------------
+2024-10-18 13:23:51,877 - INFO - extracted patch:
+2024-10-18 13:23:51,877 - INFO - extracted patch:
+2024-10-18 13:23:51,877 - INFO - extracted patch:
+2024-10-18 13:23:51,877 - INFO - extracted patch:
+2024-10-18 13:23:51,877 - INFO - extracted patch:
+2024-10-18 13:23:51,877 - INFO - extracted patch:
+2024-10-18 13:23:51,877 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,877 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,877 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,877 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,877 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:51,877 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - === file_to_commands: ===
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", DEFAULT_LOG_FORMAT),\n            get_option_ini(config, \"log_date_format\", DEFAULT_LOG_DATE_FORMAT),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.log_file_format = get_option_ini(config, \"log_file_format\", \"log_format\")\n=======\n        self.log_file_format = get_option_ini(config, \"log_file_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,548 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - === edit_commands: ===
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
+            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - <<<<<<< SEARCH
+        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+=======
+        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,549 - INFO - 
+----------------------------------------
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - extracted patch:
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:52,551 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,13 +394,13 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", DEFAULT_LOG_FORMAT),
++            get_option_ini(config, "log_date_format", DEFAULT_LOG_DATE_FORMAT),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+         self.log_file_level = get_actual_log_level(config, "log_file_level")
+-        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
++        self.log_file_format = get_option_ini(config, "log_file_format", DEFAULT_LOG_FORMAT)
+         self.log_file_date_format = get_option_ini(
+             config, "log_file_date_format", "log_date_format"
+         )
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,126 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,127 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,128 - INFO - extracted patch:
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,129 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,877 - INFO - === file_to_commands: ===
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - === edit_commands: ===
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,878 - INFO - 
+----------------------------------------
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - extracted patch:
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:53,880 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - === file_to_commands: ===
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - === edit_commands: ===
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,584 - INFO - 
+----------------------------------------
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - extracted patch:
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:54,586 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - === file_to_commands: ===
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - {
+  "'src/_pytest/logging.py'": [
+    "<<<<<<< SEARCH\nDEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n=======\nDEFAULT_LOG_FORMAT = \"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\"),\n            get_option_ini(config, \"log_date_format\"),\n        )\n=======\n        self.formatter = logging.Formatter(\n            get_option_ini(config, \"log_format\", \"log_format\"),\n            get_option_ini(config, \"log_date_format\", \"log_date_format\"),\n        )\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        log_cli_format = get_option_ini(config, \"log_cli_format\", \"log_format\")\n=======\n        log_cli_format = get_option_ini(config, \"log_cli_format\", DEFAULT_LOG_FORMAT)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edited_file: 'src/_pytest/logging.py' ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - === edit_commands: ===
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - <<<<<<< SEARCH
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+=======
+DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+>>>>>>> REPLACE
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,333 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format"),
+            get_option_ini(config, "log_date_format"),
+        )
+=======
+        self.formatter = logging.Formatter(
+            get_option_ini(config, "log_format", "log_format"),
+            get_option_ini(config, "log_date_format", "log_date_format"),
+        )
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - <<<<<<< SEARCH
+        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+=======
+        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+>>>>>>> REPLACE
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,334 - INFO - 
+----------------------------------------
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - extracted patch:
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
+2024-10-18 13:23:55,336 - INFO - --- src/_pytest/logging.py
++++ src/_pytest/logging.py
+@@ -15,7 +15,7 @@
+ from _pytest.config import create_terminal_writer
+ from _pytest.pathlib import Path
+ 
+-DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
++DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+ DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+ 
+ 
+@@ -394,8 +394,8 @@
+ 
+         self.print_logs = get_option_ini(config, "log_print")
+         self.formatter = logging.Formatter(
+-            get_option_ini(config, "log_format"),
+-            get_option_ini(config, "log_date_format"),
++            get_option_ini(config, "log_format", "log_format"),
++            get_option_ini(config, "log_date_format", "log_date_format"),
+         )
+         self.log_level = get_actual_log_level(config, "log_level")
+ 
+@@ -437,7 +437,7 @@
+         capture_manager = config.pluginmanager.get_plugin("capturemanager")
+         # if capturemanager plugin is disabled, live logging still works.
+         log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+-        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
++        log_cli_format = get_option_ini(config, "log_cli_format", DEFAULT_LOG_FORMAT)
+         log_cli_date_format = get_option_ini(
+             config, "log_cli_date_format", "log_date_format"
+         )
