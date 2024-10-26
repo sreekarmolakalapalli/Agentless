@@ -57,6 +57,8 @@ def process_instances(instance_ids, output_folder):
                                 --output_folder {result_folder} --top_n 3 \
                                 --compress \
                                 --target_id={instance_id} \
+                                --model_id={model} \
+                                --backend={backend} \
                                 --context_window=10 \
                                 --temperature 0.8 \
                                 --num_samples 4"""),
@@ -114,3 +116,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
