@@ -1,0 +1,3208 @@
+2024-10-18 14:00:46,686 - INFO - Processing bug django__django-11742
+2024-10-18 14:01:43,011 - INFO - ================ localize django__django-11742 ================
+2024-10-18 14:01:43,063 - INFO - prompting with message:
+Please look through the following GitHub problem description, and Repository structure and provide a list of files that one would need to edit to fix the problem.
+
+### GitHub Problem Description ###
+Add check to ensure max_length fits longest choice.
+Description
+	
+There is currently no check to ensure that Field.max_length is large enough to fit the longest value in Field.choices.
+This would be very helpful as often this mistake is not noticed until an attempt is made to save a record with those values that are too long.
+
+
+###
+
+
+
+### Repository Structure ###
+django/
+    setup.py
+    shortcuts.py
+    __init__.py
+    __main__.py
+    apps/
+        config.py
+        registry.py
+        __init__.py
+    template/
+        response.py
+        defaultfilters.py
+        base.py
+        exceptions.py
+        defaulttags.py
+        engine.py
+        utils.py
+        context_processors.py
+        context.py
+        smartif.py
+        loader_tags.py
+        loader.py
+        __init__.py
+        library.py
+        loaders/
+            base.py
+            cached.py
+            filesystem.py
+            locmem.py
+            app_directories.py
+            __init__.py
+        backends/
+            django.py
+            base.py
+            dummy.py
+            utils.py
+            __init__.py
+            jinja2.py
+    contrib/
+        __init__.py
+        auth/
+            urls.py
+            hashers.py
+            models.py
+            views.py
+            admin.py
+            backends.py
+            base_user.py
+            middleware.py
+            password_validation.py
+            checks.py
+            apps.py
+            decorators.py
+            forms.py
+            mixins.py
+            signals.py
+            validators.py
+            tokens.py
+            context_processors.py
+            __init__.py
+            handlers/
+                modwsgi.py
+                __init__.py
+            migrations/
+                0002_alter_permission_name_max_length.py
+                0005_alter_user_last_login_null.py
+                0008_alter_user_username_max_length.py
+                0010_alter_group_name_max_length.py
+                0006_require_contenttypes_0002.py
+                0007_alter_validators_add_error_messages.py
+                0001_initial.py
+                0004_alter_user_username_opts.py
+                0009_alter_user_last_name_max_length.py
+                0003_alter_user_email_max_length.py
+                __init__.py
+                0011_update_proxy_permissions.py
+            management/
+                __init__.py
+                commands/
+                    changepassword.py
+                    createsuperuser.py
+        sites/
+            requests.py
+            shortcuts.py
+            models.py
+            admin.py
+            middleware.py
+            managers.py
+            apps.py
+            management.py
+            __init__.py
+            migrations/
+                0002_alter_domain_unique.py
+                0001_initial.py
+                __init__.py
+        postgres/
+            apps.py
+            serializers.py
+            signals.py
+            validators.py
+            operations.py
+            search.py
+            utils.py
+            lookups.py
+            indexes.py
+            constraints.py
+            __init__.py
+            functions.py
+            aggregates/
+                statistics.py
+                general.py
+                mixins.py
+                __init__.py
+            fields/
+                citext.py
+                ranges.py
+                hstore.py
+                mixins.py
+                array.py
+                utils.py
+                jsonb.py
+                __init__.py
+            forms/
+                ranges.py
+                hstore.py
+                array.py
+                jsonb.py
+                __init__.py
+        admin/
+            sites.py
+            models.py
+            options.py
+            actions.py
+            exceptions.py
+            checks.py
+            filters.py
+            apps.py
+            decorators.py
+            helpers.py
+            forms.py
+            utils.py
+            widgets.py
+            __init__.py
+            bin/
+                compress.py
+            views/
+                autocomplete.py
+                decorators.py
+                main.py
+                __init__.py
+            templatetags/
+                base.py
+                admin_urls.py
+                admin_modify.py
+                log.py
+                admin_list.py
+                __init__.py
+            migrations/
+                0002_logentry_remove_auto_add.py
+                0003_logentry_add_action_flag_choices.py
+                0001_initial.py
+                __init__.py
+        staticfiles/
+            urls.py
+            views.py
+            storage.py
+            checks.py
+            apps.py
+            finders.py
+            handlers.py
+            utils.py
+            __init__.py
+            management/
+                commands/
+                    runserver.py
+                    collectstatic.py
+                    findstatic.py
+        gis/
+            shortcuts.py
+            views.py
+            ptr.py
+            geometry.py
+            apps.py
+            feeds.py
+            measure.py
+            __init__.py
+            gdal/
+                base.py
+                error.py
+                feature.py
+                geometries.py
+                libgdal.py
+                layer.py
+                srs.py
+                driver.py
+                envelope.py
+                field.py
+                geomtype.py
+                __init__.py
+                datasource.py
+                prototypes/
+                    errcheck.py
+                    srs.py
+                    ds.py
+                    generation.py
+                    geom.py
+                    raster.py
+                    __init__.py
+                raster/
+                    source.py
+                    base.py
+                    band.py
+                    const.py
+                    __init__.py
+            serializers/
+                __init__.py
+                geojson.py
+            admin/
+                options.py
+                widgets.py
+                __init__.py
+            geos/
+                prepared.py
+                base.py
+                error.py
+                geometry.py
+                point.py
+                factory.py
+                io.py
+                coordseq.py
+                mutable_list.py
+                linestring.py
+                libgeos.py
+                polygon.py
+                collections.py
+                __init__.py
+                prototypes/
+                    topology.py
+                    prepared.py
+                    misc.py
+                    errcheck.py
+                    io.py
+                    coordseq.py
+                    threadsafe.py
+                    geom.py
+                    predicates.py
+                    __init__.py
+            geoip2/
+                base.py
+                resources.py
+                __init__.py
+            db/
+                __init__.py
+                models/
+                    aggregates.py
+                    proxy.py
+                    lookups.py
+                    __init__.py
+                    functions.py
+                    fields.py
+                    sql/
+                        conversion.py
+                        __init__.py
+                backends/
+                    utils.py
+                    __init__.py
+                    oracle/
+                        models.py
+                        schema.py
+                        base.py
+                        adapter.py
+                        operations.py
+                        introspection.py
+                        __init__.py
+                        features.py
+                    postgis/
+                        models.py
+                        schema.py
+                        base.py
+                        adapter.py
+                        const.py
+                        operations.py
+                        introspection.py
+                        pgraster.py
+                        __init__.py
+                        features.py
+                    base/
+                        models.py
+                        adapter.py
+                        operations.py
+                        __init__.py
+                        features.py
+                    mysql/
+                        schema.py
+                        base.py
+                        operations.py
+                        introspection.py
+                        __init__.py
+                        features.py
+                    spatialite/
+                        models.py
+                        schema.py
+                        base.py
+                        adapter.py
+                        client.py
+                        operations.py
+                        introspection.py
+                        __init__.py
+                        features.py
+            utils/
+                ogrinfo.py
+                layermapping.py
+                ogrinspect.py
+                srs.py
+                __init__.py
+            forms/
+                widgets.py
+                __init__.py
+                fields.py
+            management/
+                commands/
+                    inspectdb.py
+                    ogrinspect.py
+            sitemaps/
+                views.py
+                kml.py
+                __init__.py
+        syndication/
+            views.py
+            apps.py
+            __init__.py
+        messages/
+            views.py
+            api.py
+            constants.py
+            middleware.py
+            apps.py
+            utils.py
+            context_processors.py
+            __init__.py
+            storage/
+                base.py
+                session.py
+                cookie.py
+                fallback.py
+                __init__.py
+        sessions/
+            models.py
+            exceptions.py
+            middleware.py
+            apps.py
+            serializers.py
+            base_session.py
+            __init__.py
+            migrations/
+                0001_initial.py
+                __init__.py
+            backends/
+                file.py
+                base.py
+                signed_cookies.py
+                cached_db.py
+                db.py
+                cache.py
+                __init__.py
+            management/
+                commands/
+                    clearsessions.py
+        contenttypes/
+            models.py
+            views.py
+            admin.py
+            checks.py
+            apps.py
+            forms.py
+            __init__.py
+            fields.py
+            migrations/
+                0001_initial.py
+                0002_remove_content_type_name.py
+                __init__.py
+            management/
+                __init__.py
+                commands/
+                    remove_stale_contenttypes.py
+        admindocs/
+            urls.py
+            views.py
+            middleware.py
+            apps.py
+            utils.py
+            __init__.py
+        humanize/
+            apps.py
+            __init__.py
+            templatetags/
+                humanize.py
+                __init__.py
+        flatpages/
+            urls.py
+            sitemaps.py
+            models.py
+            views.py
+            admin.py
+            middleware.py
+            apps.py
+            forms.py
+            __init__.py
+            templatetags/
+                flatpages.py
+                __init__.py
+            migrations/
+                0001_initial.py
+                __init__.py
+        redirects/
+            models.py
+            admin.py
+            middleware.py
+            apps.py
+            __init__.py
+            migrations/
+                0001_initial.py
+                __init__.py
+        sitemaps/
+            views.py
+            apps.py
+            __init__.py
+            management/
+                commands/
+                    ping_google.py
+    core/
+        signing.py
+        exceptions.py
+        asgi.py
+        wsgi.py
+        signals.py
+        validators.py
+        paginator.py
+        __init__.py
+        handlers/
+            base.py
+            asgi.py
+            wsgi.py
+            exception.py
+            __init__.py
+        checks/
+            urls.py
+            database.py
+            translation.py
+            templates.py
+            messages.py
+            caches.py
+            registry.py
+            model_checks.py
+            __init__.py
+            compatibility/
+                __init__.py
+            security/
+                base.py
+                csrf.py
+                sessions.py
+                __init__.py
+        serializers/
+            python.py
+            base.py
+            xml_serializer.py
+            json.py
+            pyyaml.py
+            __init__.py
+        mail/
+            message.py
+            utils.py
+            __init__.py
+            backends/
+                base.py
+                smtp.py
+                locmem.py
+                console.py
+                dummy.py
+                filebased.py
+                __init__.py
+        cache/
+            utils.py
+            __init__.py
+            backends/
+                base.py
+                locmem.py
+                db.py
+                memcached.py
+                dummy.py
+                filebased.py
+                __init__.py
+        servers/
+            basehttp.py
+            __init__.py
+        files/
+            uploadhandler.py
+            move.py
+            base.py
+            images.py
+            storage.py
+            uploadedfile.py
+            temp.py
+            utils.py
+            locks.py
+            __init__.py
+        management/
+            color.py
+            base.py
+            templates.py
+            sql.py
+            utils.py
+            __init__.py
+            commands/
+                makemigrations.py
+                dbshell.py
+                makemessages.py
+                inspectdb.py
+                shell.py
+                sendtestemail.py
+                createcachetable.py
+                runserver.py
+                dumpdata.py
+                compilemessages.py
+                check.py
+                loaddata.py
+                diffsettings.py
+                squashmigrations.py
+                startproject.py
+                sqlflush.py
+                showmigrations.py
+                sqlmigrate.py
+                flush.py
+                sqlsequencereset.py
+                startapp.py
+                migrate.py
+    bin/
+        django-admin.py
+    http/
+        response.py
+        request.py
+        cookie.py
+        multipartparser.py
+        __init__.py
+    conf/
+        global_settings.py
+        __init__.py
+        urls/
+            i18n.py
+            static.py
+            __init__.py
+        locale/
+            __init__.py
+            sv/
+                formats.py
+                __init__.py
+            fr/
+                formats.py
+                __init__.py
+            uk/
+                formats.py
+                __init__.py
+            cy/
+                formats.py
+                __init__.py
+            pl/
+                formats.py
+                __init__.py
+            hr/
+                formats.py
+                __init__.py
+            en_GB/
+                formats.py
+                __init__.py
+            de_CH/
+                formats.py
+                __init__.py
+            zh_Hant/
+                formats.py
+                __init__.py
+            mn/
+                formats.py
+                __init__.py
+            fi/
+                formats.py
+                __init__.py
+            sr_Latn/
+                formats.py
+                __init__.py
+            de/
+                formats.py
+                __init__.py
+            he/
+                formats.py
+                __init__.py
+            nn/
+                formats.py
+                __init__.py
+            lv/
+                formats.py
+                __init__.py
+            es/
+                formats.py
+                __init__.py
+            kn/
+                formats.py
+                __init__.py
+            sq/
+                formats.py
+                __init__.py
+            fa/
+                formats.py
+                __init__.py
+            id/
+                formats.py
+                __init__.py
+            nb/
+                formats.py
+                __init__.py
+            es_NI/
+                formats.py
+                __init__.py
+            es_AR/
+                formats.py
+                __init__.py
+            fy/
+                formats.py
+                __init__.py
+            bg/
+                formats.py
+                __init__.py
+            gd/
+                formats.py
+                __init__.py
+            en/
+                formats.py
+                __init__.py
+            pt_BR/
+                formats.py
+                __init__.py
+            hi/
+                formats.py
+                __init__.py
+            ko/
+                formats.py
+                __init__.py
+            th/
+                formats.py
+                __init__.py
+            bs/
+                formats.py
+                __init__.py
+            sk/
+                formats.py
+                __init__.py
+            nl/
+                formats.py
+                __init__.py
+            eo/
+                formats.py
+                __init__.py
+            en_AU/
+                formats.py
+                __init__.py
+            bn/
+                formats.py
+                __init__.py
+            km/
+                formats.py
+                __init__.py
+            sl/
+                formats.py
+                __init__.py
+            ar/
+                formats.py
+                __init__.py
+            lt/
+                formats.py
+                __init__.py
+            ga/
+                formats.py
+                __init__.py
+            ka/
+                formats.py
+                __init__.py
+            ml/
+                formats.py
+                __init__.py
+            sr/
+                formats.py
+                __init__.py
+            cs/
+                formats.py
+                __init__.py
+            ru/
+                formats.py
+                __init__.py
+            ja/
+                formats.py
+                __init__.py
+            mk/
+                formats.py
+                __init__.py
+            ta/
+                formats.py
+                __init__.py
+            es_CO/
+                formats.py
+                __init__.py
+            ca/
+                formats.py
+                __init__.py
+            zh_Hans/
+                formats.py
+                __init__.py
+            da/
+                formats.py
+                __init__.py
+            gl/
+                formats.py
+                __init__.py
+            es_MX/
+                formats.py
+                __init__.py
+            it/
+                formats.py
+                __init__.py
+            pt/
+                formats.py
+                __init__.py
+            el/
+                formats.py
+                __init__.py
+            tr/
+                formats.py
+                __init__.py
+            vi/
+                formats.py
+                __init__.py
+            te/
+                formats.py
+                __init__.py
+            et/
+                formats.py
+                __init__.py
+            is/
+                formats.py
+                __init__.py
+            es_PR/
+                formats.py
+                __init__.py
+            eu/
+                formats.py
+                __init__.py
+            az/
+                formats.py
+                __init__.py
+            hu/
+                formats.py
+                __init__.py
+            ro/
+                formats.py
+                __init__.py
+    middleware/
+        common.py
+        locale.py
+        security.py
+        csrf.py
+        clickjacking.py
+        gzip.py
+        http.py
+        cache.py
+        __init__.py
+    views/
+        i18n.py
+        debug.py
+        csrf.py
+        static.py
+        defaults.py
+        __init__.py
+        generic/
+            dates.py
+            base.py
+            edit.py
+            detail.py
+            list.py
+            __init__.py
+        decorators/
+            debug.py
+            vary.py
+            csrf.py
+            clickjacking.py
+            gzip.py
+            http.py
+            cache.py
+            __init__.py
+    templatetags/
+        l10n.py
+        i18n.py
+        tz.py
+        static.py
+        cache.py
+        __init__.py
+    dispatch/
+        dispatcher.py
+        __init__.py
+    db/
+        transaction.py
+        utils.py
+        __init__.py
+        models/
+            base.py
+            constants.py
+            options.py
+            query.py
+            query_utils.py
+            enums.py
+            manager.py
+            deletion.py
+            aggregates.py
+            signals.py
+            utils.py
+            lookups.py
+            indexes.py
+            constraints.py
+            __init__.py
+            expressions.py
+            sql/
+                where.py
+                constants.py
+                query.py
+                compiler.py
+                subqueries.py
+                datastructures.py
+                __init__.py
+            functions/
+                datetime.py
+                mixins.py
+                comparison.py
+                math.py
+                window.py
+                __init__.py
+                text.py
+            fields/
+                reverse_related.py
+                related.py
+                mixins.py
+                related_lookups.py
+                proxy.py
+                files.py
+                __init__.py
+                related_descriptors.py
+        migrations/
+            state.py
+            serializer.py
+            graph.py
+            exceptions.py
+            executor.py
+            utils.py
+            writer.py
+            autodetector.py
+            recorder.py
+            loader.py
+            questioner.py
+            optimizer.py
+            __init__.py
+            migration.py
+            operations/
+                models.py
+                base.py
+                utils.py
+                special.py
+                __init__.py
+                fields.py
+        backends/
+            ddl_references.py
+            signals.py
+            utils.py
+            __init__.py
+            oracle/
+                validation.py
+                schema.py
+                base.py
+                creation.py
+                client.py
+                operations.py
+                utils.py
+                introspection.py
+                __init__.py
+                features.py
+                functions.py
+            sqlite3/
+                schema.py
+                base.py
+                creation.py
+                client.py
+                operations.py
+                introspection.py
+                __init__.py
+                features.py
+            postgresql/
+                schema.py
+                base.py
+                creation.py
+                client.py
+                operations.py
+                utils.py
+                introspection.py
+                __init__.py
+                features.py
+            base/
+                validation.py
+                schema.py
+                base.py
+                creation.py
+                client.py
+                operations.py
+                introspection.py
+                __init__.py
+                features.py
+            mysql/
+                validation.py
+                schema.py
+                base.py
+                creation.py
+                compiler.py
+                client.py
+                operations.py
+                introspection.py
+                __init__.py
+                features.py
+            dummy/
+                base.py
+                __init__.py
+                features.py
+    urls/
+        converters.py
+        conf.py
+        base.py
+        exceptions.py
+        utils.py
+        resolvers.py
+        __init__.py
+    utils/
+        dates.py
+        feedgenerator.py
+        autoreload.py
+        timezone.py
+        lorem_ipsum.py
+        safestring.py
+        topological_sort.py
+        crypto.py
+        datetime_safe.py
+        jslex.py
+        tree.py
+        itercompat.py
+        encoding.py
+        version.py
+        _os.py
+        html.py
+        numberformat.py
+        dateformat.py
+        formats.py
+        deprecation.py
+        decorators.py
+        inspect.py
+        log.py
+        baseconv.py
+        asyncio.py
+        timesince.py
+        deconstruct.py
+        xmlutils.py
+        module_loading.py
+        regex_helper.py
+        hashable.py
+        archive.py
+        termcolors.py
+        dateparse.py
+        http.py
+        functional.py
+        ipv6.py
+        datastructures.py
+        cache.py
+        __init__.py
+        text.py
+        duration.py
+        translation/
+            template.py
+            reloader.py
+            trans_null.py
+            trans_real.py
+            __init__.py
+    forms/
+        models.py
+        formsets.py
+        forms.py
+        utils.py
+        widgets.py
+        boundfield.py
+        renderers.py
+        __init__.py
+        fields.py
+docs/
+    conf.py
+    _ext/
+        djangodocs.py
+scripts/
+    manage_translations.py
+
+###
+
+Please only provide the full path and return at most 5 files.
+The returned files should be separated by new lines ordered by most to least important and wrapped with ```
+For example:
+```
+file1.py
+file2.py
+```
+2024-10-18 14:01:43,064 - INFO - ================================================================================
+2024-10-18 14:01:43,115 - INFO - Creating API request
+2024-10-18 14:01:44,485 - INFO - API response ChatCompletion(id='chatcmpl-AJoONBL97VueH0cWGCzjCgCdXe8Mm', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\ndjango/db/models/fields/__init__.py\ndjango/db/models/fields/mixins.py\ndjango/db/models/fields/utils.py\ndjango/db/models/fields/related.py\ndjango/db/models/fields/reverse_related.py\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285303, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_939d701e6c', usage=CompletionUsage(completion_tokens=50, prompt_tokens=4747, total_tokens=4797, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:01:44,492 - INFO - ```
+django/db/models/fields/__init__.py
+django/db/models/fields/mixins.py
+django/db/models/fields/utils.py
+django/db/models/fields/related.py
+django/db/models/fields/reverse_related.py
+```
+2024-10-18 14:01:45,804 - INFO - prompting with message:
+
+Please look through the following GitHub Problem Description, and the Skeleton of Relevant Files.
+Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
+For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+
+### GitHub Problem Description ###
+Add check to ensure max_length fits longest choice.
+Description
+	
+There is currently no check to ensure that Field.max_length is large enough to fit the longest value in Field.choices.
+This would be very helpful as often this mistake is not noticed until an attempt is made to save a record with those values that are too long.
+
+
+###
+
+
+
+### Skeleton of Relevant Files ###
+
+### File: django/db/models/fields/__init__.py ###
+```python
+
+__all__ = [
+    'AutoField', 'BLANK_CHOICE_DASH', 'BigAutoField', 'BigIntegerField',
+    'BinaryField', 'BooleanField', 'CharField', 'CommaSeparatedIntegerField',
+    'DateField', 'DateTimeField', 'DecimalField', 'DurationField',
+    'EmailField', 'Empty', 'Field', 'FieldDoesNotExist', 'FilePathField',
+    'FloatField', 'GenericIPAddressField', 'IPAddressField', 'IntegerField',
+    'NOT_PROVIDED', 'NullBooleanField', 'PositiveIntegerField',
+    'PositiveSmallIntegerField', 'SlugField', 'SmallAutoField',
+    'SmallIntegerField', 'TextField', 'TimeField', 'URLField', 'UUIDField',
+]
+
+
+class Empty:
+    pass
+
+
+class NOT_PROVIDED:
+    pass
+
+
+# The values to use for "blank" in SelectFields. Will be appended to the start
+# of most "choices" lists.
+BLANK_CHOICE_DASH = [("", "---------")]
+
+
+def _load_field(app_label, model_name, field_name):
+...
+
+# A guide to Field parameters:
+#
+#   * name:      The name of the field specified in the model.
+#   * attname:   The attribute to use on the model object. This is the same as
+#                "name", except in the case of ForeignKeys, where "_id" is
+#                appended.
+#   * db_column: The db_column specified in the model (or None).
+#   * column:    The database column for this field. This is the same as
+#                "attname", except if db_column is specified.
+#
+# Code that introspects values, or does other dynamic things, should use
+# attname. For example, this gets the primary key value of object "obj":
+#
+#     getattr(obj, opts.pk.attname)
+
+def _empty(of_cls):
+...
+
+def return_None():
+...
+
+@total_ordering
+class Field(RegisterLookupMixin):
+
+    # Designates whether empty strings fundamentally are allowed at the
+    # database level.
+    empty_strings_allowed = True
+    empty_values = list(validators.EMPTY_VALUES)
+
+    # These track each time a Field instance is created. Used to retain order.
+    # The auto_creation_counter is used for fields that Django implicitly
+    # creates, creation_counter is used for all user-specified fields.
+    creation_counter = 0
+    auto_creation_counter = -1
+    default_validators = []  # Default set of validators
+    default_error_messages = {
+        'invalid_choice': _('Value %(value)r is not a valid choice.'),
+        'null': _('This field cannot be null.'),
+        'blank': _('This field cannot be blank.'),
+        'unique': _('%(model_name)s with this %(field_label)s '
+                    'already exists.'),
+        # Translators: The 'lookup_type' is one of 'date', 'year' or 'month'.
+        # Eg: "Title must be unique for pub_date year"
+        'unique_for_date': _("%(field_label)s must be unique for "
+                             "%(date_field_label)s %(lookup_type)s."),
+    }
+    system_check_deprecated_details = None
+    system_check_removed_details = None
+
+    # Field flags
+    hidden = False
+
+    many_to_many = None
+    many_to_one = None
+    one_to_many = None
+    one_to_one = None
+    related_model = None
+
+    descriptor_class = DeferredAttribute
+
+    # Generic field type description, usually overridden by subclasses
+    def _description(self):
+...
+    description = property(_description)
+
+    def __init__(self, verbose_name=None, name=None, primary_key=False,
+                 max_length=None, unique=False, blank=False, null=False,
+                 db_index=False, rel=None, default=NOT_PROVIDED, editable=True,
+                 serialize=True, unique_for_date=None, unique_for_month=None,
+                 unique_for_year=None, choices=None, help_text='', db_column=None,
+                 db_tablespace=None, auto_created=False, validators=(),
+                 error_messages=None):
+...
+    def __str__(self):
+...
+    def __repr__(self):
+...
+    def check(self, **kwargs):
+...
+    def _check_field_name(self):
+...
+    def _check_choices(self):
+...
+    def _check_db_index(self):
+...
+    def _check_null_allowed_for_primary_keys(self):
+...
+    def _check_backend_specific_checks(self, **kwargs):
+...
+    def _check_validators(self):
+...
+    def _check_deprecation_details(self):
+...
+    def get_col(self, alias, output_field=None):
+...
+    @cached_property
+    def cached_col(self):
+...
+    def select_format(self, compiler, sql, params):
+...
+    def deconstruct(self):
+...
+    def clone(self):
+...
+    def __eq__(self, other):
+...
+    def __lt__(self, other):
+...
+    def __hash__(self):
+...
+    def __deepcopy__(self, memodict):
+...
+    def __copy__(self):
+...
+    def __reduce__(self):
+...
+    def get_pk_value_on_save(self, instance):
+...
+    def to_python(self, value):
+...
+    @cached_property
+    def validators(self):
+...
+    def run_validators(self, value):
+...
+    def validate(self, value, model_instance):
+...
+    def clean(self, value, model_instance):
+...
+    def db_type_parameters(self, connection):
+...
+    def db_check(self, connection):
+...
+    def db_type(self, connection):
+...
+    def rel_db_type(self, connection):
+...
+    def cast_db_type(self, connection):
+...
+    def db_parameters(self, connection):
+...
+    def db_type_suffix(self, connection):
+...
+    def get_db_converters(self, connection):
+...
+    @property
+    def unique(self):
+...
+    @property
+    def db_tablespace(self):
+...
+    def set_attributes_from_name(self, name):
+...
+    def contribute_to_class(self, cls, name, private_only=False):
+...
+    def get_filter_kwargs_for_object(self, obj):
+...
+    def get_attname(self):
+...
+    def get_attname_column(self):
+...
+    def get_internal_type(self):
+...
+    def pre_save(self, model_instance, add):
+...
+    def get_prep_value(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def get_db_prep_save(self, value, connection):
+...
+    def has_default(self):
+...
+    def get_default(self):
+...
+    @cached_property
+    def _get_default(self):
+...
+    def get_choices(self, include_blank=True, blank_choice=BLANK_CHOICE_DASH, limit_choices_to=None, ordering=()):
+...
+    def value_to_string(self, obj):
+...
+    def _get_flatchoices(self):
+...
+    flatchoices = property(_get_flatchoices)
+
+    def save_form_data(self, instance, data):
+...
+    def formfield(self, form_class=None, choices_form_class=None, **kwargs):
+...
+    def value_from_object(self, obj):
+...
+
+class BooleanField(Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value must be either True or False.'),
+        'invalid_nullable': _('“%(value)s” value must be either True, False, or None.'),
+    }
+    description = _("Boolean (Either True or False)")
+
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def get_prep_value(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class CharField(Field):
+    description = _("String (up to %(max_length)s)")
+
+    def __init__(self, *args, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_max_length_attribute(self, **kwargs):
+...
+    def cast_db_type(self, connection):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def get_prep_value(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class CommaSeparatedIntegerField(CharField):
+    default_validators = [validators.validate_comma_separated_integer_list]
+    description = _("Comma-separated integers")
+    system_check_removed_details = {
+        'msg': (
+            'CommaSeparatedIntegerField is removed except for support in '
+            'historical migrations.'
+        ),
+        'hint': (
+            'Use CharField(validators=[validate_comma_separated_integer_list]) '
+            'instead.'
+        ),
+        'id': 'fields.E901',
+    }
+
+
+class DateTimeCheckMixin:
+
+    def check(self, **kwargs):
+...
+    def _check_mutually_exclusive_options(self):
+...
+    def _check_fix_default_value(self):
+...
+
+class DateField(DateTimeCheckMixin, Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value has an invalid date format. It must be '
+                     'in YYYY-MM-DD format.'),
+        'invalid_date': _('“%(value)s” value has the correct format (YYYY-MM-DD) '
+                          'but it is an invalid date.'),
+    }
+    description = _("Date (without time)")
+
+    def __init__(self, verbose_name=None, name=None, auto_now=False,
+                 auto_now_add=False, **kwargs):
+...
+    def _check_fix_default_value(self):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def pre_save(self, model_instance, add):
+...
+    def contribute_to_class(self, cls, name, **kwargs):
+...
+    def get_prep_value(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def value_to_string(self, obj):
+...
+    def formfield(self, **kwargs):
+...
+
+class DateTimeField(DateField):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value has an invalid format. It must be in '
+                     'YYYY-MM-DD HH:MM[:ss[.uuuuuu]][TZ] format.'),
+        'invalid_date': _("“%(value)s” value has the correct format "
+                          "(YYYY-MM-DD) but it is an invalid date."),
+        'invalid_datetime': _('“%(value)s” value has the correct format '
+                              '(YYYY-MM-DD HH:MM[:ss[.uuuuuu]][TZ]) '
+                              'but it is an invalid date/time.'),
+    }
+    description = _("Date (with time)")
+
+    # __init__ is inherited from DateField
+
+    def _check_fix_default_value(self):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def pre_save(self, model_instance, add):
+...
+    # contribute_to_class is inherited from DateField, it registers
+    # get_next_by_FOO and get_prev_by_FOO
+
+    def get_prep_value(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def value_to_string(self, obj):
+...
+    def formfield(self, **kwargs):
+...
+
+class DecimalField(Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value must be a decimal number.'),
+    }
+    description = _("Decimal number")
+
+    def __init__(self, verbose_name=None, name=None, max_digits=None,
+                 decimal_places=None, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_decimal_places(self):
+...
+    def _check_max_digits(self):
+...
+    def _check_decimal_places_and_max_digits(self, **kwargs):
+...
+    @cached_property
+    def validators(self):
+...
+    @cached_property
+    def context(self):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def get_db_prep_save(self, value, connection):
+...
+    def get_prep_value(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class DurationField(Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value has an invalid format. It must be in '
+                     '[DD] [[HH:]MM:]ss[.uuuuuu] format.')
+    }
+    description = _("Duration")
+
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def get_db_converters(self, connection):
+...
+    def value_to_string(self, obj):
+...
+    def formfield(self, **kwargs):
+...
+
+class EmailField(CharField):
+    default_validators = [validators.validate_email]
+    description = _("Email address")
+
+    def __init__(self, *args, **kwargs):
+...
+    def deconstruct(self):
+...
+    def formfield(self, **kwargs):
+...
+
+class FilePathField(Field):
+    description = _("File path")
+
+    def __init__(self, verbose_name=None, name=None, path='', match=None,
+                 recursive=False, allow_files=True, allow_folders=False, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_allowing_files_or_folders(self, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_prep_value(self, value):
+...
+    def formfield(self, **kwargs):
+...
+    def get_internal_type(self):
+...
+
+class FloatField(Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value must be a float.'),
+    }
+    description = _("Floating point number")
+
+    def get_prep_value(self, value):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class IntegerField(Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value must be an integer.'),
+    }
+    description = _("Integer")
+
+    def check(self, **kwargs):
+...
+    def _check_max_length_warning(self):
+...
+    @cached_property
+    def validators(self):
+...
+    def get_prep_value(self, value):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class BigIntegerField(IntegerField):
+    description = _("Big (8 byte) integer")
+    MAX_BIGINT = 9223372036854775807
+
+    def get_internal_type(self):
+...
+    def formfield(self, **kwargs):
+...
+
+class IPAddressField(Field):
+    empty_strings_allowed = False
+    description = _("IPv4 address")
+    system_check_removed_details = {
+        'msg': (
+            'IPAddressField has been removed except for support in '
+            'historical migrations.'
+        ),
+        'hint': 'Use GenericIPAddressField instead.',
+        'id': 'fields.E900',
+    }
+
+    def __init__(self, *args, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_prep_value(self, value):
+...
+    def get_internal_type(self):
+...
+
+class GenericIPAddressField(Field):
+    empty_strings_allowed = False
+    description = _("IP address")
+    default_error_messages = {}
+
+    def __init__(self, verbose_name=None, name=None, protocol='both',
+                 unpack_ipv4=False, *args, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_blank_and_null_values(self, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def get_prep_value(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class NullBooleanField(BooleanField):
+    default_error_messages = {
+        'invalid': _('“%(value)s” value must be either None, True or False.'),
+        'invalid_nullable': _('“%(value)s” value must be either None, True or False.'),
+    }
+    description = _("Boolean (Either True, False or None)")
+
+    def __init__(self, *args, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+
+class PositiveIntegerRelDbTypeMixin:
+
+    def rel_db_type(self, connection):
+...
+
+class PositiveIntegerField(PositiveIntegerRelDbTypeMixin, IntegerField):
+    description = _("Positive integer")
+
+    def get_internal_type(self):
+...
+    def formfield(self, **kwargs):
+...
+
+class PositiveSmallIntegerField(PositiveIntegerRelDbTypeMixin, IntegerField):
+    description = _("Positive small integer")
+
+    def get_internal_type(self):
+...
+    def formfield(self, **kwargs):
+...
+
+class SlugField(CharField):
+    default_validators = [validators.validate_slug]
+    description = _("Slug (up to %(max_length)s)")
+
+    def __init__(self, *args, max_length=50, db_index=True, allow_unicode=False, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def formfield(self, **kwargs):
+...
+
+class SmallIntegerField(IntegerField):
+    description = _("Small integer")
+
+    def get_internal_type(self):
+...
+
+class TextField(Field):
+    description = _("Text")
+
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def get_prep_value(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class TimeField(DateTimeCheckMixin, Field):
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('“%(value)s” value has an invalid format. It must be in '
+                     'HH:MM[:ss[.uuuuuu]] format.'),
+        'invalid_time': _('“%(value)s” value has the correct format '
+                          '(HH:MM[:ss[.uuuuuu]]) but it is an invalid time.'),
+    }
+    description = _("Time")
+
+    def __init__(self, verbose_name=None, name=None, auto_now=False,
+                 auto_now_add=False, **kwargs):
+...
+    def _check_fix_default_value(self):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def to_python(self, value):
+...
+    def pre_save(self, model_instance, add):
+...
+    def get_prep_value(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def value_to_string(self, obj):
+...
+    def formfield(self, **kwargs):
+...
+
+class URLField(CharField):
+    default_validators = [validators.URLValidator()]
+    description = _("URL")
+
+    def __init__(self, verbose_name=None, name=None, **kwargs):
+...
+    def deconstruct(self):
+...
+    def formfield(self, **kwargs):
+...
+
+class BinaryField(Field):
+    description = _("Raw binary data")
+    empty_values = [None, b'']
+
+    def __init__(self, *args, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_str_default_value(self):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def get_placeholder(self, value, compiler, connection):
+...
+    def get_default(self):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def value_to_string(self, obj):
+...
+    def to_python(self, value):
+...
+
+class UUIDField(Field):
+    default_error_messages = {
+        'invalid': _('“%(value)s” is not a valid UUID.'),
+    }
+    description = _('Universally unique identifier')
+    empty_strings_allowed = False
+
+    def __init__(self, verbose_name=None, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_internal_type(self):
+...
+    def get_prep_value(self, value):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def to_python(self, value):
+...
+    def formfield(self, **kwargs):
+...
+
+class AutoFieldMixin:
+
+    def __init__(self, *args, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_primary_key(self):
+...
+    def deconstruct(self):
+...
+    def validate(self, value, model_instance):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def contribute_to_class(self, cls, name, **kwargs):
+...
+    def formfield(self, **kwargs):
+...
+
+class AutoFieldMeta(type):
+
+    @property
+    def _subclasses(self):
+...
+    def __instancecheck__(self, instance):
+...
+    def __subclasscheck__(self, subclass):
+...
+
+class AutoField(AutoFieldMixin, IntegerField, metaclass=AutoFieldMeta):
+
+    def get_internal_type(self):
+...
+    def rel_db_type(self, connection):
+...
+
+class BigAutoField(AutoFieldMixin, BigIntegerField):
+
+    def get_internal_type(self):
+...
+    def rel_db_type(self, connection):
+...
+
+class SmallAutoField(AutoFieldMixin, SmallIntegerField):
+
+    def get_internal_type(self):
+...
+    def rel_db_type(self, connection):
+
+```
+
+### File: django/db/models/fields/mixins.py ###
+```python
+NOT_PROVIDED = object()
+
+
+class FieldCacheMixin:
+
+    def get_cache_name(self):
+...
+    def get_cached_value(self, instance, default=NOT_PROVIDED):
+...
+    def is_cached(self, instance):
+...
+    def set_cached_value(self, instance, value):
+...
+    def delete_cached_value(self, instance):
+
+```
+
+### File: django/db/models/fields/related.py ###
+```python
+
+RECURSIVE_RELATIONSHIP_CONSTANT = 'self'
+
+
+def resolve_relation(scope_model, relation):
+...
+
+def lazy_related_operation(function, model, *related_models, **kwargs):
+...
+
+class RelatedField(FieldCacheMixin, Field):
+
+    # Field flags
+    one_to_many = False
+    one_to_one = False
+    many_to_many = False
+    many_to_one = False
+
+    @cached_property
+    def related_model(self):
+...
+    def check(self, **kwargs):
+...
+    def _check_related_name_is_valid(self):
+...
+    def _check_related_query_name_is_valid(self):
+...
+    def _check_relation_model_exists(self):
+...
+    def _check_referencing_to_swapped_model(self):
+...
+    def _check_clashes(self):
+...
+    def db_type(self, connection):
+...
+    def contribute_to_class(self, cls, name, private_only=False, **kwargs):
+...
+    def deconstruct(self):
+...
+    def get_forward_related_filter(self, obj):
+...
+    def get_reverse_related_filter(self, obj):
+...
+    @property
+    def swappable_setting(self):
+...
+    def set_attributes_from_rel(self):
+...
+    def do_related_class(self, other, cls):
+...
+    def get_limit_choices_to(self):
+...
+    def formfield(self, **kwargs):
+...
+    def related_query_name(self):
+...
+    @property
+    def target_field(self):
+...
+    def get_cache_name(self):
+...
+
+class ForeignObject(RelatedField):
+
+    # Field flags
+    many_to_many = False
+    many_to_one = True
+    one_to_many = False
+    one_to_one = False
+
+    requires_unique_target = True
+    related_accessor_class = ReverseManyToOneDescriptor
+    forward_related_accessor_class = ForwardManyToOneDescriptor
+    rel_class = ForeignObjectRel
+
+    def __init__(self, to, on_delete, from_fields, to_fields, rel=None, related_name=None,
+                 related_query_name=None, limit_choices_to=None, parent_link=False,
+                 swappable=True, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_to_fields_exist(self):
+...
+    def _check_unique_target(self):
+...
+    def deconstruct(self):
+...
+    def resolve_related_fields(self):
+...
+    @property
+    def related_fields(self):
+...
+    @property
+    def reverse_related_fields(self):
+...
+    @property
+    def local_related_fields(self):
+...
+    @property
+    def foreign_related_fields(self):
+...
+    def get_local_related_value(self, instance):
+...
+    def get_foreign_related_value(self, instance):
+...
+    @staticmethod
+    def get_instance_value_for_fields(instance, fields):
+...
+    def get_attname_column(self):
+...
+    def get_joining_columns(self, reverse_join=False):
+...
+    def get_reverse_joining_columns(self):
+...
+    def get_extra_descriptor_filter(self, instance):
+...
+    def get_extra_restriction(self, where_class, alias, related_alias):
+...
+    def get_path_info(self, filtered_relation=None):
+...
+    def get_reverse_path_info(self, filtered_relation=None):
+...
+    @classmethod
+    @functools.lru_cache(maxsize=None)
+    def get_lookups(cls):
+...
+    def contribute_to_class(self, cls, name, private_only=False, **kwargs):
+...
+    def contribute_to_related_class(self, cls, related):
+...
+
+class ForeignKey(ForeignObject):
+    descriptor_class = ForeignKeyDeferredAttribute
+    # Field flags
+    many_to_many = False
+    many_to_one = True
+    one_to_many = False
+    one_to_one = False
+
+    rel_class = ManyToOneRel
+
+    empty_strings_allowed = False
+    default_error_messages = {
+        'invalid': _('%(model)s instance with %(field)s %(value)r does not exist.')
+    }
+    description = _("Foreign Key (type determined by related field)")
+
+    def __init__(self, to, on_delete, related_name=None, related_query_name=None,
+                 limit_choices_to=None, parent_link=False, to_field=None,
+                 db_constraint=True, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_on_delete(self):
+...
+    def _check_unique(self, **kwargs):
+...
+    def deconstruct(self):
+...
+    def to_python(self, value):
+...
+    @property
+    def target_field(self):
+...
+    def get_reverse_path_info(self, filtered_relation=None):
+...
+    def validate(self, value, model_instance):
+...
+    def get_attname(self):
+...
+    def get_attname_column(self):
+...
+    def get_default(self):
+...
+    def get_db_prep_save(self, value, connection):
+...
+    def get_db_prep_value(self, value, connection, prepared=False):
+...
+    def get_prep_value(self, value):
+...
+    def contribute_to_related_class(self, cls, related):
+...
+    def formfield(self, *, using=None, **kwargs):
+...
+    def db_check(self, connection):
+...
+    def db_type(self, connection):
+...
+    def db_parameters(self, connection):
+...
+    def convert_empty_strings(self, value, expression, connection):
+...
+    def get_db_converters(self, connection):
+...
+    def get_col(self, alias, output_field=None):
+...
+
+class OneToOneField(ForeignKey):
+
+    # Field flags
+    many_to_many = False
+    many_to_one = False
+    one_to_many = False
+    one_to_one = True
+
+    related_accessor_class = ReverseOneToOneDescriptor
+    forward_related_accessor_class = ForwardOneToOneDescriptor
+    rel_class = OneToOneRel
+
+    description = _("One-to-one relationship")
+
+    def __init__(self, to, on_delete, to_field=None, **kwargs):
+...
+    def deconstruct(self):
+...
+    def formfield(self, **kwargs):
+...
+    def save_form_data(self, instance, data):
+...
+    def _check_unique(self, **kwargs):
+...
+
+def create_many_to_many_intermediary_model(field, klass):
+...
+
+class ManyToManyField(RelatedField):
+
+    # Field flags
+    many_to_many = True
+    many_to_one = False
+    one_to_many = False
+    one_to_one = False
+
+    rel_class = ManyToManyRel
+
+    description = _("Many-to-many relationship")
+
+    def __init__(self, to, related_name=None, related_query_name=None,
+                 limit_choices_to=None, symmetrical=None, through=None,
+                 through_fields=None, db_constraint=True, db_table=None,
+                 swappable=True, **kwargs):
+...
+    def check(self, **kwargs):
+...
+    def _check_unique(self, **kwargs):
+...
+    def _check_ignored_options(self, **kwargs):
+...
+    def _check_relationship_model(self, from_model=None, **kwargs):
+...
+    def _check_table_uniqueness(self, **kwargs):
+...
+    def deconstruct(self):
+...
+    def _get_path_info(self, direct=False, filtered_relation=None):
+...
+    def get_path_info(self, filtered_relation=None):
+...
+    def get_reverse_path_info(self, filtered_relation=None):
+...
+    def _get_m2m_db_table(self, opts):
+...
+    def _get_m2m_attr(self, related, attr):
+...
+    def _get_m2m_reverse_attr(self, related, attr):
+...
+    def contribute_to_class(self, cls, name, **kwargs):
+...
+    def contribute_to_related_class(self, cls, related):
+...
+    def set_attributes_from_rel(self):
+...
+    def value_from_object(self, obj):
+...
+    def save_form_data(self, instance, data):
+...
+    def formfield(self, *, using=None, **kwargs):
+...
+    def db_check(self, connection):
+...
+    def db_type(self, connection):
+...
+    def db_parameters(self, connection):
+
+```
+
+
+###
+
+Please provide the complete set of locations as either a class name, a function name, or a variable name.
+Note that if you include a class, you do not need to list its specific methods.
+You can include either the entire class or don't include the class name and instead include specific methods in the class.
+### Examples:
+```
+full_path1/file1.py
+function: my_function_1
+class: MyClass1
+function: MyClass2.my_method
+
+full_path2/file2.py
+variable: my_var
+function: MyClass3.my_method
+
+full_path3/file3.py
+function: my_function_2
+function: my_function_3
+function: MyClass4.my_method_1
+class: MyClass5
+```
+
+Return just the locations.
+
+2024-10-18 14:01:45,804 - INFO - ================================================================================
+2024-10-18 14:01:45,852 - INFO - Creating API request
+2024-10-18 14:01:49,191 - INFO - API response ChatCompletion(id='chatcmpl-AJoOQH98EHD6zQxHK2JfpO4MAyO50', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\ndjango/db/models/fields/__init__.py\nclass: Field\nfunction: Field.__init__\nfunction: Field._check_choices\nfunction: Field.check\nclass: CharField\nfunction: CharField.__init__\nfunction: CharField.check\nfunction: CharField._check_max_length_attribute\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285306, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=63, prompt_tokens=6528, total_tokens=6591, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:01:49,191 - INFO - ==== raw output ====
+2024-10-18 14:01:49,191 - INFO - ```
+django/db/models/fields/__init__.py
+class: Field
+function: Field.__init__
+function: Field._check_choices
+function: Field.check
+class: CharField
+function: CharField.__init__
+function: CharField.check
+function: CharField._check_max_length_attribute
+```
+2024-10-18 14:01:49,191 - INFO - ================================================================================
+2024-10-18 14:01:49,191 - INFO - ==== extracted locs ====
+2024-10-18 14:01:49,192 - INFO - ['class: Field\nfunction: Field.__init__\nfunction: Field._check_choices\nfunction: Field.check\nclass: CharField\nfunction: CharField.__init__\nfunction: CharField.check\nfunction: CharField._check_max_length_attribute']
+2024-10-18 14:01:49,192 - INFO - ['']
+2024-10-18 14:01:49,192 - INFO - ['']
+2024-10-18 14:01:49,192 - INFO - ================================================================================
+2024-10-18 14:01:51,223 - INFO - prompting with message:
+
+Please review the following GitHub problem description, and relevant files, and provide a set of locations that need to be edited to fix the issue.
+The locations can be specified as class names, function or method names, or exact line numbers that require modification.
+
+### GitHub Problem Description ###
+Add check to ensure max_length fits longest choice.
+Description
+	
+There is currently no check to ensure that Field.max_length is large enough to fit the longest value in Field.choices.
+This would be very helpful as often this mistake is not noticed until an attempt is made to save a record with those values that are too long.
+
+
+###
+
+
+
+### django/db/models/fields/__init__.py
+...
+79|    new = Empty()
+80|    new.__class__ = of_cls
+81|    return new
+82|
+83|
+84|def return_None():
+85|    return None
+86|
+87|
+88|@total_ordering
+89|class Field(RegisterLookupMixin):
+90|    """Base class for all field types"""
+91|
+92|    # Designates whether empty strings fundamentally are allowed at the
+93|    # database level.
+94|    empty_strings_allowed = True
+95|    empty_values = list(validators.EMPTY_VALUES)
+96|
+97|    # These track each time a Field instance is created. Used to retain order.
+98|    # The auto_creation_counter is used for fields that Django implicitly
+99|    # creates, creation_counter is used for all user-specified fields.
+100|    creation_counter = 0
+101|    auto_creation_counter = -1
+102|    default_validators = []  # Default set of validators
+103|    default_error_messages = {
+104|        'invalid_choice': _('Value %(value)r is not a valid choice.'),
+105|        'null': _('This field cannot be null.'),
+106|        'blank': _('This field cannot be blank.'),
+107|        'unique': _('%(model_name)s with this %(field_label)s '
+108|                    'already exists.'),
+109|        # Translators: The 'lookup_type' is one of 'date', 'year' or 'month'.
+110|        # Eg: "Title must be unique for pub_date year"
+111|        'unique_for_date': _("%(field_label)s must be unique for "
+112|                             "%(date_field_label)s %(lookup_type)s."),
+113|    }
+114|    system_check_deprecated_details = None
+115|    system_check_removed_details = None
+116|
+117|    # Field flags
+118|    hidden = False
+119|
+120|    many_to_many = None
+121|    many_to_one = None
+122|    one_to_many = None
+123|    one_to_one = None
+124|    related_model = None
+125|
+126|    descriptor_class = DeferredAttribute
+127|
+128|    # Generic field type description, usually overridden by subclasses
+129|    def _description(self):
+130|        return _('Field of type: %(field_type)s') % {
+131|            'field_type': self.__class__.__name__
+132|        }
+133|    description = property(_description)
+134|
+135|    def __init__(self, verbose_name=None, name=None, primary_key=False,
+136|                 max_length=None, unique=False, blank=False, null=False,
+137|                 db_index=False, rel=None, default=NOT_PROVIDED, editable=True,
+138|                 serialize=True, unique_for_date=None, unique_for_month=None,
+139|                 unique_for_year=None, choices=None, help_text='', db_column=None,
+140|                 db_tablespace=None, auto_created=False, validators=(),
+141|                 error_messages=None):
+142|        self.name = name
+143|        self.verbose_name = verbose_name  # May be set by set_attributes_from_name
+144|        self._verbose_name = verbose_name  # Store original for deconstruction
+145|        self.primary_key = primary_key
+146|        self.max_length, self._unique = max_length, unique
+147|        self.blank, self.null = blank, null
+148|        self.remote_field = rel
+149|        self.is_relation = self.remote_field is not None
+150|        self.default = default
+151|        self.editable = editable
+152|        self.serialize = serialize
+153|        self.unique_for_date = unique_for_date
+154|        self.unique_for_month = unique_for_month
+155|        self.unique_for_year = unique_for_year
+156|        if isinstance(choices, collections.abc.Iterator):
+157|            choices = list(choices)
+158|        self.choices = choices
+159|        self.help_text = help_text
+160|        self.db_index = db_index
+161|        self.db_column = db_column
+162|        self._db_tablespace = db_tablespace
+163|        self.auto_created = auto_created
+164|
+165|        # Adjust the appropriate creation counter, and save our local copy.
+166|        if auto_created:
+167|            self.creation_counter = Field.auto_creation_counter
+168|            Field.auto_creation_counter -= 1
+169|        else:
+170|            self.creation_counter = Field.creation_counter
+171|            Field.creation_counter += 1
+172|
+173|        self._validators = list(validators)  # Store for deconstruction later
+174|
+175|        messages = {}
+176|        for c in reversed(self.__class__.__mro__):
+177|            messages.update(getattr(c, 'default_error_messages', {}))
+178|        messages.update(error_messages or {})
+179|        self._error_messages = error_messages  # Store for deconstruction later
+180|        self.error_messages = messages
+181|
+182|    def __str__(self):
+183|        """
+184|        Return "app_label.model_label.field_name" for fields attached to
+185|        models.
+186|        """
+187|        if not hasattr(self, 'model'):
+188|            return super().__str__()
+189|        model = self.model
+190|        app = model._meta.app_label
+191|        return '%s.%s.%s' % (app, model._meta.object_name, self.name)
+192|
+193|    def __repr__(self):
+194|        """Display the module, class, and name of the field."""
+195|        path = '%s.%s' % (self.__class__.__module__, self.__class__.__qualname__)
+196|        name = getattr(self, 'name', None)
+197|        if name is not None:
+198|            return '<%s: %s>' % (path, name)
+199|        return '<%s>' % path
+200|
+201|    def check(self, **kwargs):
+202|        return [
+203|            *self._check_field_name(),
+204|            *self._check_choices(),
+205|            *self._check_db_index(),
+206|            *self._check_null_allowed_for_primary_keys(),
+207|            *self._check_backend_specific_checks(**kwargs),
+208|            *self._check_validators(),
+209|            *self._check_deprecation_details(),
+210|        ]
+211|
+212|    def _check_field_name(self):
+213|        """
+214|        Check if field name is valid, i.e. 1) does not end with an
+215|        underscore, 2) does not contain "__" and 3) is not "pk".
+216|        """
+217|        if self.name.endswith('_'):
+218|            return [
+219|                checks.Error(
+220|                    'Field names must not end with an underscore.',
+221|                    obj=self,
+222|                    id='fields.E001',
+223|                )
+224|            ]
+225|        elif LOOKUP_SEP in self.name:
+226|            return [
+227|                checks.Error(
+228|                    'Field names must not contain "%s".' % (LOOKUP_SEP,),
+229|                    obj=self,
+230|                    id='fields.E002',
+231|                )
+232|            ]
+233|        elif self.name == 'pk':
+234|            return [
+235|                checks.Error(
+236|                    "'pk' is a reserved word that cannot be used as a field name.",
+237|                    obj=self,
+238|                    id='fields.E003',
+239|                )
+240|            ]
+241|        else:
+242|            return []
+243|
+244|    def _check_choices(self):
+245|        if not self.choices:
+246|            return []
+247|
+248|        def is_value(value, accept_promise=True):
+249|            return isinstance(value, (str, Promise) if accept_promise else str) or not is_iterable(value)
+250|
+251|        if is_value(self.choices, accept_promise=False):
+252|            return [
+253|                checks.Error(
+254|                    "'choices' must be an iterable (e.g., a list or tuple).",
+255|                    obj=self,
+256|                    id='fields.E004',
+257|                )
+258|            ]
+259|
+260|        # Expect [group_name, [value, display]]
+261|        for choices_group in self.choices:
+262|            try:
+263|                group_name, group_choices = choices_group
+264|            except (TypeError, ValueError):
+265|                # Containing non-pairs
+266|                break
+267|            try:
+268|                if not all(
+269|                    is_value(value) and is_value(human_name)
+270|                    for value, human_name in group_choices
+271|                ):
+272|                    break
+273|            except (TypeError, ValueError):
+274|                # No groups, choices in the form [value, display]
+275|                value, human_name = group_name, group_choices
+276|                if not is_value(value) or not is_value(human_name):
+277|                    break
+278|
+279|            # Special case: choices=['ab']
+280|            if isinstance(choices_group, str):
+281|                break
+282|        else:
+283|            return []
+284|
+285|        return [
+286|            checks.Error(
+287|                "'choices' must be an iterable containing "
+288|                "(actual value, human readable name) tuples.",
+289|                obj=self,
+290|                id='fields.E005',
+291|            )
+292|        ]
+293|
+294|    def _check_db_index(self):
+295|        if self.db_index not in (None, True, False):
+296|            return [
+297|                checks.Error(
+298|                    "'db_index' must be None, True or False.",
+299|                    obj=self,
+300|                    id='fields.E006',
+301|                )
+302|            ]
+303|        else:
+304|            return []
+305|
+306|    def _check_null_allowed_for_primary_keys(self):
+307|        if (self.primary_key and self.null and
+308|                not connection.features.interprets_empty_strings_as_nulls):
+309|            # We cannot reliably check this for backends like Oracle which
+310|            # consider NULL and '' to be equal (and thus set up
+311|            # character-based fields a little differently).
+312|            return [
+313|                checks.Error(
+314|                    'Primary keys must not have null=True.',
+315|                    hint=('Set null=False on the field, or '
+316|                          'remove primary_key=True argument.'),
+317|                    obj=self,
+318|                    id='fields.E007',
+319|                )
+320|            ]
+321|        else:
+322|            return []
+323|
+324|    def _check_backend_specific_checks(self, **kwargs):
+325|        app_label = self.model._meta.app_label
+326|        for db in connections:
+327|            if router.allow_migrate(db, app_label, model_name=self.model._meta.model_name):
+328|                return connections[db].validation.check_field(self, **kwargs)
+329|        return []
+330|
+331|    def _check_validators(self):
+332|        errors = []
+333|        for i, validator in enumerate(self.validators):
+334|            if not callable(validator):
+335|                errors.append(
+336|                    checks.Error(
+337|                        "All 'validators' must be callable.",
+338|                        hint=(
+339|                            "validators[{i}] ({repr}) isn't a function or "
+340|                            "instance of a validator class.".format(
+341|                                i=i, repr=repr(validator),
+342|                            )
+343|                        ),
+344|                        obj=self,
+345|                        id='fields.E008',
+346|                    )
+347|                )
+348|        return errors
+349|
+350|    def _check_deprecation_details(self):
+351|        if self.system_check_removed_details is not None:
+352|            return [
+353|                checks.Error(
+354|                    self.system_check_removed_details.get(
+355|                        'msg',
+356|                        '%s has been removed except for support in historical '
+357|                        'migrations.' % self.__class__.__name__
+358|                    ),
+359|                    hint=self.system_check_removed_details.get('hint'),
+360|                    obj=self,
+361|                    id=self.system_check_removed_details.get('id', 'fields.EXXX'),
+362|                )
+363|            ]
+364|        elif self.system_check_deprecated_details is not None:
+365|            return [
+366|                checks.Warning(
+367|                    self.system_check_deprecated_details.get(
+368|                        'msg',
+369|                        '%s has been deprecated.' % self.__class__.__name__
+370|                    ),
+371|                    hint=self.system_check_deprecated_details.get('hint'),
+372|                    obj=self,
+373|                    id=self.system_check_deprecated_details.get('id', 'fields.WXXX'),
+374|                )
+375|            ]
+376|        return []
+377|
+378|    def get_col(self, alias, output_field=None):
+379|        if output_field is None:
+380|            output_field = self
+381|        if alias != self.model._meta.db_table or output_field != self:
+382|            from django.db.models.expressions import Col
+383|            return Col(alias, self, output_field)
+384|        else:
+385|            return self.cached_col
+386|
+387|    @cached_property
+388|    def cached_col(self):
+389|        from django.db.models.expressions import Col
+390|        return Col(self.model._meta.db_table, self)
+391|
+392|    def select_format(self, compiler, sql, params):
+393|        """
+394|        Custom format for select clauses. For example, GIS columns need to be
+395|        selected as AsText(table.col) on MySQL as the table.col data can't be
+396|        used by Django.
+397|        """
+398|        return sql, params
+399|
+400|    def deconstruct(self):
+401|        """
+402|        Return enough information to recreate the field as a 4-tuple:
+403|
+404|         * The name of the field on the model, if contribute_to_class() has
+405|           been run.
+406|         * The import path of the field, including the class:e.g.
+407|           django.db.models.IntegerField This should be the most portable
+408|           version, so less specific may be better.
+409|         * A list of positional arguments.
+410|         * A dict of keyword arguments.
+411|
+412|        Note that the positional or keyword arguments must contain values of
+413|        the following types (including inner values of collection types):
+414|
+415|         * None, bool, str, int, float, complex, set, frozenset, list, tuple,
+416|           dict
+417|         * UUID
+418|         * datetime.datetime (naive), datetime.date
+419|         * top-level classes, top-level functions - will be referenced by their
+420|           full import path
+421|         * Storage instances - these have their own deconstruct() method
+422|
+423|        This is because the values here must be serialized into a text format
+424|        (possibly new Python code, possibly JSON) and these are the only types
+425|        with encoding handlers defined.
+426|
+427|        There's no need to return the exact way the field was instantiated this
+428|        time, just ensure that the resulting field is the same - prefer keyword
+429|        arguments over positional ones, and omit parameters with their default
+430|        values.
+431|        """
+432|        # Short-form way of fetching all the default parameters
+433|        keywords = {}
+434|        possibles = {
+435|            "verbose_name": None,
+436|            "primary_key": False,
+437|            "max_length": None,
+438|            "unique": False,
+439|            "blank": False,
+440|            "null": False,
+441|            "db_index": False,
+442|            "default": NOT_PROVIDED,
+443|            "editable": True,
+444|            "serialize": True,
+445|            "unique_for_date": None,
+446|            "unique_for_month": None,
+447|            "unique_for_year": None,
+448|            "choices": None,
+449|            "help_text": '',
+450|            "db_column": None,
+451|            "db_tablespace": None,
+452|            "auto_created": False,
+453|            "validators": [],
+454|            "error_messages": None,
+455|        }
+456|        attr_overrides = {
+457|            "unique": "_unique",
+458|            "error_messages": "_error_messages",
+459|            "validators": "_validators",
+460|            "verbose_name": "_verbose_name",
+461|            "db_tablespace": "_db_tablespace",
+462|        }
+463|        equals_comparison = {"choices", "validators"}
+464|        for name, default in possibles.items():
+465|            value = getattr(self, attr_overrides.get(name, name))
+466|            # Unroll anything iterable for choices into a concrete list
+467|            if name == "choices" and isinstance(value, collections.abc.Iterable):
+468|                value = list(value)
+469|            # Do correct kind of comparison
+470|            if name in equals_comparison:
+471|                if value != default:
+472|                    keywords[name] = value
+473|            else:
+474|                if value is not default:
+475|                    keywords[name] = value
+476|        # Work out path - we shorten it for known Django core fields
+477|        path = "%s.%s" % (self.__class__.__module__, self.__class__.__qualname__)
+478|        if path.startswith("django.db.models.fields.related"):
+479|            path = path.replace("django.db.models.fields.related", "django.db.models")
+480|        elif path.startswith("django.db.models.fields.files"):
+481|            path = path.replace("django.db.models.fields.files", "django.db.models")
+482|        elif path.startswith("django.db.models.fields.proxy"):
+483|            path = path.replace("django.db.models.fields.proxy", "django.db.models")
+484|        elif path.startswith("django.db.models.fields"):
+485|            path = path.replace("django.db.models.fields", "django.db.models")
+486|        # Return basic info - other fields should override this.
+487|        return (self.name, path, [], keywords)
+488|
+489|    def clone(self):
+490|        """
+491|        Uses deconstruct() to clone a new copy of this Field.
+492|        Will not preserve any class attachments/attribute names.
+493|        """
+494|        name, path, args, kwargs = self.deconstruct()
+495|        return self.__class__(*args, **kwargs)
+496|
+497|    def __eq__(self, other):
+498|        # Needed for @total_ordering
+499|        if isinstance(other, Field):
+500|            return self.creation_counter == other.creation_counter
+501|        return NotImplemented
+502|
+503|    def __lt__(self, other):
+504|        # This is needed because bisect does not take a comparison function.
+505|        if isinstance(other, Field):
+506|            return self.creation_counter < other.creation_counter
+507|        return NotImplemented
+508|
+509|    def __hash__(self):
+510|        return hash(self.creation_counter)
+511|
+512|    def __deepcopy__(self, memodict):
+513|        # We don't have to deepcopy very much here, since most things are not
+514|        # intended to be altered after initial creation.
+515|        obj = copy.copy(self)
+516|        if self.remote_field:
+517|            obj.remote_field = copy.copy(self.remote_field)
+518|            if hasattr(self.remote_field, 'field') and self.remote_field.field is self:
+519|                obj.remote_field.field = obj
+520|        memodict[id(self)] = obj
+521|        return obj
+522|
+523|    def __copy__(self):
+524|        # We need to avoid hitting __reduce__, so define this
+525|        # slightly weird copy construct.
+526|        obj = Empty()
+527|        obj.__class__ = self.__class__
+528|        obj.__dict__ = self.__dict__.copy()
+529|        return obj
+530|
+531|    def __reduce__(self):
+532|        """
+533|        Pickling should return the model._meta.fields instance of the field,
+534|        not a new copy of that field. So, use the app registry to load the
+535|        model and then the field back.
+536|        """
+537|        if not hasattr(self, 'model'):
+538|            # Fields are sometimes used without attaching them to models (for
+539|            # example in aggregation). In this case give back a plain field
+540|            # instance. The code below will create a new empty instance of
+541|            # class self.__class__, then update its dict with self.__dict__
+542|            # values - so, this is very close to normal pickle.
+543|            state = self.__dict__.copy()
+544|            # The _get_default cached_property can't be pickled due to lambda
+545|            # usage.
+546|            state.pop('_get_default', None)
+547|            return _empty, (self.__class__,), state
+548|        return _load_field, (self.model._meta.app_label, self.model._meta.object_name,
+549|                             self.name)
+550|
+551|    def get_pk_value_on_save(self, instance):
+552|        """
+553|        Hook to generate new PK values on save. This method is called when
+554|        saving instances with no primary key value set. If this method returns
+555|        something else than None, then the returned value is used when saving
+556|        the new instance.
+557|        """
+558|        if self.default:
+559|            return self.get_default()
+560|        return None
+561|
+562|    def to_python(self, value):
+563|        """
+564|        Convert the input value into the expected Python data type, raising
+565|        django.core.exceptions.ValidationError if the data can't be converted.
+566|        Return the converted value. Subclasses should override this.
+567|        """
+568|        return value
+569|
+570|    @cached_property
+571|    def validators(self):
+572|        """
+573|        Some validators can't be created at field initialization time.
+574|        This method provides a way to delay their creation until required.
+575|        """
+576|        return [*self.default_validators, *self._validators]
+577|
+578|    def run_validators(self, value):
+579|        if value in self.empty_values:
+580|            return
+581|
+582|        errors = []
+583|        for v in self.validators:
+584|            try:
+585|                v(value)
+586|            except exceptions.ValidationError as e:
+587|                if hasattr(e, 'code') and e.code in self.error_messages:
+588|                    e.message = self.error_messages[e.code]
+589|                errors.extend(e.error_list)
+590|
+591|        if errors:
+592|            raise exceptions.ValidationError(errors)
+593|
+594|    def validate(self, value, model_instance):
+595|        """
+596|        Validate value and raise ValidationError if necessary. Subclasses
+597|        should override this to provide validation logic.
+598|        """
+599|        if not self.editable:
+600|            # Skip validation for non-editable fields.
+601|            return
+602|
+603|        if self.choices is not None and value not in self.empty_values:
+604|            for option_key, option_value in self.choices:
+605|                if isinstance(option_value, (list, tuple)):
+606|                    # This is an optgroup, so look inside the group for
+607|                    # options.
+608|                    for optgroup_key, optgroup_value in option_value:
+609|                        if value == optgroup_key:
+610|                            return
+611|                elif value == option_key:
+612|                    return
+613|            raise exceptions.ValidationError(
+614|                self.error_messages['invalid_choice'],
+615|                code='invalid_choice',
+616|                params={'value': value},
+617|            )
+618|
+619|        if value is None and not self.null:
+620|            raise exceptions.ValidationError(self.error_messages['null'], code='null')
+621|
+622|        if not self.blank and value in self.empty_values:
+623|            raise exceptions.ValidationError(self.error_messages['blank'], code='blank')
+624|
+625|    def clean(self, value, model_instance):
+626|        """
+627|        Convert the value's type and run validation. Validation errors
+628|        from to_python() and validate() are propagated. Return the correct
+629|        value if no error is raised.
+630|        """
+631|        value = self.to_python(value)
+632|        self.validate(value, model_instance)
+633|        self.run_validators(value)
+634|        return value
+635|
+636|    def db_type_parameters(self, connection):
+637|        return DictWrapper(self.__dict__, connection.ops.quote_name, 'qn_')
+638|
+639|    def db_check(self, connection):
+640|        """
+641|        Return the database column check constraint for this field, for the
+642|        provided connection. Works the same way as db_type() for the case that
+643|        get_internal_type() does not map to a preexisting model field.
+644|        """
+645|        data = self.db_type_parameters(connection)
+646|        try:
+647|            return connection.data_type_check_constraints[self.get_internal_type()] % data
+648|        except KeyError:
+649|            return None
+650|
+651|    def db_type(self, connection):
+652|        """
+653|        Return the database column data type for this field, for the provided
+654|        connection.
+655|        """
+656|        # The default implementation of this method looks at the
+657|        # backend-specific data_types dictionary, looking up the field by its
+658|        # "internal type".
+659|        #
+660|        # A Field class can implement the get_internal_type() method to specify
+661|        # which *preexisting* Django Field class it's most similar to -- i.e.,
+662|        # a custom field might be represented by a TEXT column type, which is
+663|        # the same as the TextField Django field type, which means the custom
+664|        # field's get_internal_type() returns 'TextField'.
+665|        #
+666|        # But the limitation of the get_internal_type() / data_types approach
+667|        # is that it cannot handle database column types that aren't already
+668|        # mapped to one of the built-in Django field types. In this case, you
+669|        # can implement db_type() instead of get_internal_type() to specify
+670|        # exactly which wacky database column type you want to use.
+671|        data = self.db_type_parameters(connection)
+672|        try:
+673|            return connection.data_types[self.get_internal_type()] % data
+674|        except KeyError:
+675|            return None
+676|
+677|    def rel_db_type(self, connection):
+678|        """
+679|        Return the data type that a related field pointing to this field should
+680|        use. For example, this method is called by ForeignKey and OneToOneField
+681|        to determine its data type.
+682|        """
+683|        return self.db_type(connection)
+684|
+685|    def cast_db_type(self, connection):
+686|        """Return the data type to use in the Cast() function."""
+687|        db_type = connection.ops.cast_data_types.get(self.get_internal_type())
+688|        if db_type:
+689|            return db_type % self.db_type_parameters(connection)
+690|        return self.db_type(connection)
+691|
+692|    def db_parameters(self, connection):
+693|        """
+694|        Extension of db_type(), providing a range of different return values
+695|        (type, checks). This will look at db_type(), allowing custom model
+696|        fields to override it.
+697|        """
+698|        type_string = self.db_type(connection)
+699|        check_string = self.db_check(connection)
+700|        return {
+701|            "type": type_string,
+702|            "check": check_string,
+703|        }
+704|
+705|    def db_type_suffix(self, connection):
+706|        return connection.data_types_suffix.get(self.get_internal_type())
+707|
+708|    def get_db_converters(self, connection):
+709|        if hasattr(self, 'from_db_value'):
+710|            return [self.from_db_value]
+711|        return []
+712|
+713|    @property
+714|    def unique(self):
+715|        return self._unique or self.primary_key
+716|
+717|    @property
+718|    def db_tablespace(self):
+719|        return self._db_tablespace or settings.DEFAULT_INDEX_TABLESPACE
+720|
+721|    def set_attributes_from_name(self, name):
+722|        self.name = self.name or name
+723|        self.attname, self.column = self.get_attname_column()
+724|        self.concrete = self.column is not None
+725|        if self.verbose_name is None and self.name:
+726|            self.verbose_name = self.name.replace('_', ' ')
+727|
+728|    def contribute_to_class(self, cls, name, private_only=False):
+729|        """
+730|        Register the field with the model class it belongs to.
+731|
+732|        If private_only is True, create a separate instance of this field
+733|        for every subclass of cls, even if cls is not an abstract model.
+734|        """
+735|        self.set_attributes_from_name(name)
+736|        self.model = cls
+737|        cls._meta.add_field(self, private=private_only)
+738|        if self.column:
+739|            # Don't override classmethods with the descriptor. This means that
+740|            # if you have a classmethod and a field with the same name, then
+741|            # such fields can't be deferred (we don't have a check for this).
+742|            if not getattr(cls, self.attname, None):
+743|                setattr(cls, self.attname, self.descriptor_class(self))
+744|        if self.choices is not None:
+745|            setattr(cls, 'get_%s_display' % self.name,
+746|                    partialmethod(cls._get_FIELD_display, field=self))
+747|
+748|    def get_filter_kwargs_for_object(self, obj):
+749|        """
+750|        Return a dict that when passed as kwargs to self.model.filter(), would
+751|        yield all instances having the same value for this field as obj has.
+752|        """
+753|        return {self.name: getattr(obj, self.attname)}
+754|
+755|    def get_attname(self):
+756|        return self.name
+757|
+758|    def get_attname_column(self):
+759|        attname = self.get_attname()
+760|        column = self.db_column or attname
+761|        return attname, column
+762|
+763|    def get_internal_type(self):
+764|        return self.__class__.__name__
+765|
+766|    def pre_save(self, model_instance, add):
+767|        """Return field's value just before saving."""
+768|        return getattr(model_instance, self.attname)
+769|
+770|    def get_prep_value(self, value):
+771|        """Perform preliminary non-db specific value checks and conversions."""
+772|        if isinstance(value, Promise):
+773|            value = value._proxy____cast()
+774|        return value
+775|
+776|    def get_db_prep_value(self, value, connection, prepared=False):
+777|        """
+778|        Return field's value prepared for interacting with the database backend.
+779|
+780|        Used by the default implementations of get_db_prep_save().
+781|        """
+782|        if not prepared:
+783|            value = self.get_prep_value(value)
+784|        return value
+785|
+786|    def get_db_prep_save(self, value, connection):
+787|        """Return field's value prepared for saving into a database."""
+788|        return self.get_db_prep_value(value, connection=connection, prepared=False)
+789|
+790|    def has_default(self):
+791|        """Return a boolean of whether this field has a default value."""
+792|        return self.default is not NOT_PROVIDED
+793|
+794|    def get_default(self):
+795|        """Return the default value for this field."""
+796|        return self._get_default()
+797|
+798|    @cached_property
+799|    def _get_default(self):
+800|        if self.has_default():
+801|            if callable(self.default):
+802|                return self.default
+803|            return lambda: self.default
+804|
+805|        if not self.empty_strings_allowed or self.null and not connection.features.interprets_empty_strings_as_nulls:
+806|            return return_None
+807|        return str  # return empty string
+808|
+809|    def get_choices(self, include_blank=True, blank_choice=BLANK_CHOICE_DASH, limit_choices_to=None, ordering=()):
+810|        """
+811|        Return choices with a default blank choices included, for use
+812|        as <select> choices for this field.
+813|        """
+814|        if self.choices is not None:
+815|            choices = list(self.choices)
+816|            if include_blank:
+817|                blank_defined = any(choice in ('', None) for choice, _ in self.flatchoices)
+818|                if not blank_defined:
+819|                    choices = blank_choice + choices
+820|            return choices
+821|        rel_model = self.remote_field.model
+822|        limit_choices_to = limit_choices_to or self.get_limit_choices_to()
+823|        choice_func = operator.attrgetter(
+824|            self.remote_field.get_related_field().attname
+825|            if hasattr(self.remote_field, 'get_related_field')
+826|            else 'pk'
+827|        )
+828|        qs = rel_model._default_manager.complex_filter(limit_choices_to)
+829|        if ordering:
+830|            qs = qs.order_by(*ordering)
+831|        return (blank_choice if include_blank else []) + [
+832|            (choice_func(x), str(x)) for x in qs
+833|        ]
+834|
+835|    def value_to_string(self, obj):
+836|        """
+837|        Return a string value of this field from the passed obj.
+838|        This is used by the serialization framework.
+839|        """
+840|        return str(self.value_from_object(obj))
+841|
+842|    def _get_flatchoices(self):
+843|        """Flattened version of choices tuple."""
+844|        if self.choices is None:
+845|            return []
+846|        flat = []
+847|        for choice, value in self.choices:
+848|            if isinstance(value, (list, tuple)):
+849|                flat.extend(value)
+850|            else:
+851|                flat.append((choice, value))
+852|        return flat
+853|    flatchoices = property(_get_flatchoices)
+854|
+855|    def save_form_data(self, instance, data):
+856|        setattr(instance, self.name, data)
+857|
+858|    def formfield(self, form_class=None, choices_form_class=None, **kwargs):
+859|        """Return a django.forms.Field instance for this field."""
+860|        defaults = {
+861|            'required': not self.blank,
+862|            'label': capfirst(self.verbose_name),
+863|            'help_text': self.help_text,
+864|        }
+865|        if self.has_default():
+866|            if callable(self.default):
+867|                defaults['initial'] = self.default
+868|                defaults['show_hidden_initial'] = True
+869|            else:
+870|                defaults['initial'] = self.get_default()
+871|        if self.choices is not None:
+872|            # Fields with choices get special treatment.
+873|            include_blank = (self.blank or
+874|                             not (self.has_default() or 'initial' in kwargs))
+875|            defaults['choices'] = self.get_choices(include_blank=include_blank)
+876|            defaults['coerce'] = self.to_python
+877|            if self.null:
+878|                defaults['empty_value'] = None
+879|            if choices_form_class is not None:
+880|                form_class = choices_form_class
+881|            else:
+882|                form_class = forms.TypedChoiceField
+883|            # Many of the subclass-specific formfield arguments (min_value,
+884|            # max_value) don't apply for choice fields, so be sure to only pass
+885|            # the values that TypedChoiceField will understand.
+886|            for k in list(kwargs):
+887|                if k not in ('coerce', 'empty_value', 'choices', 'required',
+888|                             'widget', 'label', 'initial', 'help_text',
+889|                             'error_messages', 'show_hidden_initial', 'disabled'):
+890|                    del kwargs[k]
+891|        defaults.update(kwargs)
+892|        if form_class is None:
+893|            form_class = forms.CharField
+894|        return form_class(**defaults)
+895|
+896|    def value_from_object(self, obj):
+897|        """Return the value of this field in the given model instance."""
+898|        return getattr(obj, self.attname)
+899|
+900|
+901|class BooleanField(Field):
+902|    empty_strings_allowed = False
+903|    default_error_messages = {
+904|        'invalid': _('“%(value)s” value must be either True or False.'),
+905|        'invalid_nullable': _('“%(value)s” value must be either True, False, or None.'),
+906|    }
+907|    description = _("Boolean (Either True or False)")
+908|
+...
+937|            defaults = {'choices': self.get_choices(include_blank=include_blank)}
+938|        else:
+939|            form_class = forms.NullBooleanField if self.null else forms.BooleanField
+940|            # In HTML checkboxes, 'required' means "must be checked" which is
+941|            # different from the choices case ("must select some value").
+942|            # required=False allows unchecked checkboxes.
+943|            defaults = {'form_class': form_class, 'required': False}
+944|        return super().formfield(**{**defaults, **kwargs})
+945|
+946|
+947|class CharField(Field):
+948|    description = _("String (up to %(max_length)s)")
+949|
+950|    def __init__(self, *args, **kwargs):
+951|        super().__init__(*args, **kwargs)
+952|        self.validators.append(validators.MaxLengthValidator(self.max_length))
+953|
+954|    def check(self, **kwargs):
+955|        return [
+956|            *super().check(**kwargs),
+957|            *self._check_max_length_attribute(**kwargs),
+958|        ]
+959|
+960|    def _check_max_length_attribute(self, **kwargs):
+961|        if self.max_length is None:
+962|            return [
+963|                checks.Error(
+964|                    "CharFields must define a 'max_length' attribute.",
+965|                    obj=self,
+966|                    id='fields.E120',
+967|                )
+968|            ]
+969|        elif (not isinstance(self.max_length, int) or isinstance(self.max_length, bool) or
+970|                self.max_length <= 0):
+971|            return [
+972|                checks.Error(
+973|                    "'max_length' must be a positive integer.",
+974|                    obj=self,
+975|                    id='fields.E121',
+976|                )
+977|            ]
+978|        else:
+979|            return []
+980|
+981|    def cast_db_type(self, connection):
+982|        if self.max_length is None:
+983|            return connection.ops.cast_char_field_without_max_length
+984|        return super().cast_db_type(connection)
+985|
+986|    def get_internal_type(self):
+987|        return "CharField"
+988|
+989|    def to_python(self, value):
+990|        if isinstance(value, str) or value is None:
+991|            return value
+992|        return str(value)
+993|
+994|    def get_prep_value(self, value):
+995|        value = super().get_prep_value(value)
+996|        return self.to_python(value)
+997|
+998|    def formfield(self, **kwargs):
+999|        # Passing max_length to forms.CharField means that the value's length
+1000|        # will be validated twice. This is considered acceptable since we want
+1001|        # the value in the form field (to pass into widget for example).
+1002|        defaults = {'max_length': self.max_length}
+1003|        # TODO: Handle multiple backends with different feature flags.
+1004|        if self.null and not connection.features.interprets_empty_strings_as_nulls:
+1005|            defaults['empty_value'] = None
+1006|        defaults.update(kwargs)
+1007|        return super().formfield(**defaults)
+1008|
+1009|
+1010|class CommaSeparatedIntegerField(CharField):
+1011|    default_validators = [validators.validate_comma_separated_integer_list]
+1012|    description = _("Comma-separated integers")
+1013|    system_check_removed_details = {
+1014|        'msg': (
+1015|            'CommaSeparatedIntegerField is removed except for support in '
+1016|            'historical migrations.'
+1017|        ),
+...
+
+
+
+
+###
+
+Please provide the class name, function or method name, or the exact line numbers that need to be edited.
+### Examples:
+```
+full_path1/file1.py
+line: 10
+class: MyClass1
+line: 51
+
+full_path2/file2.py
+function: MyClass2.my_method
+line: 12
+
+full_path3/file3.py
+function: my_function
+line: 24
+line: 156
+```
+
+Return just the location(s)
+
+2024-10-18 14:01:51,224 - INFO - ================================================================================
+2024-10-18 14:01:51,282 - INFO - Creating API request
+2024-10-18 14:01:52,673 - INFO - API response ChatCompletion(id='chatcmpl-AJoOV7JhdXS17I4gaUve2TKJNRpa4', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\ndjango/db/models/fields/__init__.py\nfunction: Field._check_choices\nline: 244\nline: 283\n\ndjango/db/models/fields/__init__.py\nfunction: Field.__init__\nline: 158\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content='```\ndjango/db/models/fields/__init__.py\nfunction: Field._check_choices\nline: 244\n\ndjango/db/models/fields/__init__.py\nfunction: CharField._check_max_length_attribute\nline: 960\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content='```\ndjango/db/models/fields/__init__.py\nfunction: Field._check_choices\nline: 244\nline: 283\n\ndjango/db/models/fields/__init__.py\nfunction: CharField.check\nline: 954\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content='```\ndjango/db/models/fields/__init__.py\nfunction: Field._check_choices\nline: 244\nline: 245\n\ndjango/db/models/fields/__init__.py\nfunction: CharField._check_max_length_attribute\nline: 960\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285311, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=207, prompt_tokens=9157, total_tokens=9364, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:01:52,673 - INFO - ==== raw output ====
+2024-10-18 14:01:52,673 - INFO - ```
+django/db/models/fields/__init__.py
+function: Field._check_choices
+line: 244
+line: 283
+
+django/db/models/fields/__init__.py
+function: Field.__init__
+line: 158
+```
+2024-10-18 14:01:52,673 - INFO - ================================================================================
+2024-10-18 14:01:52,673 - INFO - ==== extracted locs ====
+2024-10-18 14:01:52,673 - INFO - ['function: Field._check_choices\nline: 244\nline: 283\nfunction: Field.__init__\nline: 158']
+2024-10-18 14:01:52,673 - INFO - ['']
+2024-10-18 14:01:52,673 - INFO - ['']
+2024-10-18 14:01:52,673 - INFO - ================================================================================
+2024-10-18 14:01:52,673 - INFO - ==== raw output ====
+2024-10-18 14:01:52,673 - INFO - ```
+django/db/models/fields/__init__.py
+function: Field._check_choices
+line: 244
+
+django/db/models/fields/__init__.py
+function: CharField._check_max_length_attribute
+line: 960
+```
+2024-10-18 14:01:52,674 - INFO - ================================================================================
+2024-10-18 14:01:52,674 - INFO - ==== extracted locs ====
+2024-10-18 14:01:52,674 - INFO - ['function: Field._check_choices\nline: 244\nfunction: CharField._check_max_length_attribute\nline: 960']
+2024-10-18 14:01:52,674 - INFO - ['']
+2024-10-18 14:01:52,674 - INFO - ['']
+2024-10-18 14:01:52,674 - INFO - ================================================================================
+2024-10-18 14:01:52,674 - INFO - ==== raw output ====
+2024-10-18 14:01:52,674 - INFO - ```
+django/db/models/fields/__init__.py
+function: Field._check_choices
+line: 244
+line: 283
+
+django/db/models/fields/__init__.py
+function: CharField.check
+line: 954
+```
+2024-10-18 14:01:52,674 - INFO - ================================================================================
+2024-10-18 14:01:52,674 - INFO - ==== extracted locs ====
+2024-10-18 14:01:52,674 - INFO - ['function: Field._check_choices\nline: 244\nline: 283\nfunction: CharField.check\nline: 954']
+2024-10-18 14:01:52,674 - INFO - ['']
+2024-10-18 14:01:52,674 - INFO - ['']
+2024-10-18 14:01:52,674 - INFO - ================================================================================
+2024-10-18 14:01:52,674 - INFO - ==== raw output ====
+2024-10-18 14:01:52,674 - INFO - ```
+django/db/models/fields/__init__.py
+function: Field._check_choices
+line: 244
+line: 245
+
+django/db/models/fields/__init__.py
+function: CharField._check_max_length_attribute
+line: 960
+```
+2024-10-18 14:01:52,674 - INFO - ================================================================================
+2024-10-18 14:01:52,674 - INFO - ==== extracted locs ====
+2024-10-18 14:01:52,674 - INFO - ['function: Field._check_choices\nline: 244\nline: 245\nfunction: CharField._check_max_length_attribute\nline: 960']
+2024-10-18 14:01:52,674 - INFO - ['']
+2024-10-18 14:01:52,674 - INFO - ['']
+2024-10-18 14:01:52,674 - INFO - ================================================================================
+2024-10-18 14:01:52,674 - INFO - ==== Input coarse_locs
+2024-10-18 14:01:52,674 - INFO - 
+### django/db/models/fields/__init__.py
+class: Field
+function: Field.__init__
+function: Field._check_choices
+function: Field.check
+class: CharField
+function: CharField.__init__
+function: CharField.check
+function: CharField._check_max_length_attribute
+### django/db/models/fields/mixins.py
+
+### django/db/models/fields/related.py
+
+

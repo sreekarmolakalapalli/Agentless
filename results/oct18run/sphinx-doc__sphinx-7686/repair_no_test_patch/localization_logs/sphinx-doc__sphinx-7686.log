@@ -1,0 +1,3746 @@
+2024-10-18 14:06:58,159 - INFO - ================ repairing sphinx-doc__sphinx-7686 ================
+2024-10-18 14:07:38,593 - INFO - prompting with message:
+We are currently solving the following issue within our repository. Here is the issue text:
+--- BEGIN ISSUE ---
+autosummary: The members variable for module template contains imported members
+**Describe the bug**
+autosummary: The members variable for module template contains imported members even if autosummary_imported_members is False.
+
+**To Reproduce**
+
+```
+# _templates/autosummary/module.rst
+{{ fullname | escape | underline }}
+
+.. automodule:: {{ fullname }}
+
+   .. autosummary::
+   {% for item in members %}
+      {{ item }}
+   {%- endfor %}
+
+```
+```
+# example.py
+import os
+```
+```
+# index.rst
+.. autosummary::
+   :toctree: generated
+
+   example
+```
+```
+# conf.py
+autosummary_generate = True
+autosummary_imported_members = False
+```
+
+As a result, I got following output:
+```
+# generated/example.rst
+example
+=======
+
+.. automodule:: example
+
+   .. autosummary::
+
+      __builtins__
+      __cached__
+      __doc__
+      __file__
+      __loader__
+      __name__
+      __package__
+      __spec__
+      os
+```
+
+**Expected behavior**
+The template variable `members` should not contain imported members when `autosummary_imported_members` is False.
+
+**Your project**
+No
+
+**Screenshots**
+No
+
+**Environment info**
+- OS: Mac
+- Python version: 3.8.2
+- Sphinx version: 3.1.0dev
+- Sphinx extensions:  sphinx.ext.autosummary
+- Extra tools: No
+
+**Additional context**
+No
+
+
+--- END ISSUE ---
+
+
+
+
+Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
+
+--- BEGIN FILE ---
+```
+### sphinx/ext/autosummary/generate.py
+...
+            except TemplateNotFound:
+                # fallback to base.rst
+                template = self.env.get_template('autosummary/base.rst')
+
+        return template.render(context)
+
+
+# -- Generating output ---------------------------------------------------------
+
+
+def generate_autosummary_content(name: str, obj: Any, parent: Any,
+                                 template: AutosummaryRenderer, template_name: str,
+                                 imported_members: bool, app: Any,
+                                 recursive: bool, context: Dict) -> str:
+    doc = get_documenter(app, obj, parent)
+
+    def skip_member(obj: Any, name: str, objtype: str) -> bool:
+        try:
+            return app.emit_firstresult('autodoc-skip-member', objtype, name,
+                                        obj, False, {})
+        except Exception as exc:
+            logger.warning(__('autosummary: failed to determine %r to be documented, '
+                              'the following exception was raised:\n%s'),
+                           name, exc, type='autosummary')
+            return False
+
+    def get_members(obj: Any, types: Set[str], include_public: List[str] = [],
+                    imported: bool = True) -> Tuple[List[str], List[str]]:
+        items = []  # type: List[str]
+        public = []  # type: List[str]
+        for name in dir(obj):
+            try:
+                value = safe_getattr(obj, name)
+            except AttributeError:
+                continue
+            documenter = get_documenter(app, value, obj)
+            if documenter.objtype in types:
+                # skip imported members if expected
+                if imported or getattr(value, '__module__', None) == obj.__name__:
+                    skipped = skip_member(value, name, documenter.objtype)
+                    if skipped is True:
+                        pass
+                    elif skipped is False:
+                        # show the member forcedly
+                        items.append(name)
+                        public.append(name)
+                    else:
+                        items.append(name)
+                        if name in include_public or not name.startswith('_'):
+                            # considers member as public
+                            public.append(name)
+        return public, items
+
+    def get_module_attrs(members: Any) -> Tuple[List[str], List[str]]:
+        """Find module attributes with docstrings."""
+        attrs, public = [], []
+        try:
+            analyzer = ModuleAnalyzer.for_module(name)
+            attr_docs = analyzer.find_attr_docs()
+            for namespace, attr_name in attr_docs:
+                if namespace == '' and attr_name in members:
+                    attrs.append(attr_name)
+                    if not attr_name.startswith('_'):
+                        public.append(attr_name)
+        except PycodeError:
+            pass    # give up if ModuleAnalyzer fails to parse code
+        return public, attrs
+
+    def get_modules(obj: Any) -> Tuple[List[str], List[str]]:
+        items = []  # type: List[str]
+        for _, modname, ispkg in pkgutil.iter_modules(obj.__path__):
+            fullname = name + '.' + modname
+            items.append(fullname)
+        public = [x for x in items if not x.split('.')[-1].startswith('_')]
+        return public, items
+
+    ns = {}  # type: Dict[str, Any]
+    ns.update(context)
+
+    if doc.objtype == 'module':
+        ns['members'] = dir(obj)
+        ns['functions'], ns['all_functions'] = \
+            get_members(obj, {'function'}, imported=imported_members)
+        ns['classes'], ns['all_classes'] = \
+            get_members(obj, {'class'}, imported=imported_members)
+        ns['exceptions'], ns['all_exceptions'] = \
+            get_members(obj, {'exception'}, imported=imported_members)
+        ns['attributes'], ns['all_attributes'] = \
+            get_module_attrs(ns['members'])
+        ispackage = hasattr(obj, '__path__')
+        if ispackage and recursive:
+            ns['modules'], ns['all_modules'] = get_modules(obj)
+    elif doc.objtype == 'class':
+        ns['members'] = dir(obj)
+        ns['inherited_members'] = \
+            set(dir(obj)) - set(obj.__dict__.keys())
+        ns['methods'], ns['all_methods'] = \
+            get_members(obj, {'method'}, ['__init__'])
+        ns['attributes'], ns['all_attributes'] = \
+            get_members(obj, {'attribute', 'property'})
+
+    modname, qualname = split_full_qualified_name(name)
+    if doc.objtype in ('method', 'attribute', 'property'):
+        ns['class'] = qualname.rsplit(".", 1)[0]
+
+    if doc.objtype in ('class',):
+        shortname = qualname
+    else:
+        shortname = qualname.rsplit(".", 1)[-1]
+
+    ns['fullname'] = name
+    ns['module'] = modname
+    ns['objname'] = qualname
+    ns['name'] = shortname
+
+    ns['objtype'] = doc.objtype
+    ns['underline'] = len(name) * '='
+
+    if template_name:
+        return template.render(template_name, ns)
+    else:
+        return template.render(doc.objtype, ns)
+
+
+def generate_autosummary_docs(sources: List[str], output_dir: str = None,
+                              suffix: str = '.rst', warn: Callable = None,
+                              info: Callable = None, base_path: str = None,
+                              builder: Builder = None, template_dir: str = None,
+                              imported_members: bool = False, app: Any = None,
+                              overwrite: bool = True) -> None:
+    if info:
+        warnings.warn('info argument for generate_autosummary_docs() is deprecated.',
+...
+
+
+### sphinx/ext/autosummary/__init__.py
+...
+               if cls.can_document_member(obj, '', False, parent_doc)]
+    if classes:
+        classes.sort(key=lambda cls: cls.priority)
+        return classes[-1]
+    else:
+        return DataDocumenter
+
+
+# -- .. autosummary:: ----------------------------------------------------------
+
+class Autosummary(SphinxDirective):
+    """
+    Pretty table containing short signatures and summaries of functions etc.
+
+    autosummary can also optionally generate a hidden toctree:: node.
+    """
+
+    required_arguments = 0
+    optional_arguments = 0
+    final_argument_whitespace = False
+    has_content = True
+    option_spec = {
+        'caption': directives.unchanged_required,
+        'toctree': directives.unchanged,
+        'nosignatures': directives.flag,
+        'recursive': directives.flag,
+        'template': directives.unchanged,
+    }
+
+    def run(self) -> List[Node]:
+        self.bridge = DocumenterBridge(self.env, self.state.document.reporter,
+                                       Options(), self.lineno, self.state)
+
+        names = [x.strip().split()[0] for x in self.content
+                 if x.strip() and re.search(r'^[~a-zA-Z_]', x.strip()[0])]
+        items = self.get_items(names)
+        nodes = self.get_table(items)
+
+        if 'toctree' in self.options:
+            dirname = posixpath.dirname(self.env.docname)
+
+            tree_prefix = self.options['toctree'].strip()
+            docnames = []
+            excluded = Matcher(self.config.exclude_patterns)
+            for name, sig, summary, real_name in items:
+                docname = posixpath.join(tree_prefix, real_name)
+                docname = posixpath.normpath(posixpath.join(dirname, docname))
+                if docname not in self.env.found_docs:
+                    location = self.state_machine.get_source_and_line(self.lineno)
+                    if excluded(self.env.doc2path(docname, None)):
+                        msg = __('autosummary references excluded document %r. Ignored.')
+                    else:
+                        msg = __('autosummary: stub file not found %r. '
+                                 'Check your autosummary_generate setting.')
+
+                    logger.warning(msg, real_name, location=location)
+                    continue
+
+                docnames.append(docname)
+
+            if docnames:
+                tocnode = addnodes.toctree()
+                tocnode['includefiles'] = docnames
+                tocnode['entries'] = [(None, docn) for docn in docnames]
+                tocnode['maxdepth'] = -1
+                tocnode['glob'] = None
+                tocnode['caption'] = self.options.get('caption')
+
+                nodes.append(autosummary_toc('', '', tocnode))
+
+        if 'toctree' not in self.options and 'caption' in self.options:
+            logger.warning(__('A captioned autosummary requires :toctree: option. ignored.'),
+                           location=nodes[-1])
+
+        return nodes
+
+    def get_items(self, names: List[str]) -> List[Tuple[str, str, str, str]]:
+        """Try to import the given names, and return a list of
+        ``[(name, signature, summary_string, real_name), ...]``.
+        """
+        prefixes = get_import_prefixes_from_env(self.env)
+
+        items = []  # type: List[Tuple[str, str, str, str]]
+
+        max_item_chars = 50
+
+        for name in names:
+            display_name = name
+            if name.startswith('~'):
+                name = name[1:]
+                display_name = name.split('.')[-1]
+
+            try:
+                with mock(self.config.autosummary_mock_imports):
+                    real_name, obj, parent, modname = import_by_name(name, prefixes=prefixes)
+            except ImportError:
+                logger.warning(__('autosummary: failed to import %s'), name)
+                continue
+
+            self.bridge.result = StringList()  # initialize for each documenter
+            full_name = real_name
+            if not isinstance(obj, ModuleType):
+                # give explicitly separated module name, so that members
+                # of inner classes can be documented
+                full_name = modname + '::' + full_name[len(modname) + 1:]
+            # NB. using full_name here is important, since Documenters
+            #     handle module prefixes slightly differently
+            doccls = get_documenter(self.env.app, obj, parent)
+            documenter = doccls(self.bridge, full_name)
+            if not documenter.parse_name():
+                logger.warning(__('failed to parse name %s'), real_name)
+                items.append((display_name, '', '', real_name))
+                continue
+            if not documenter.import_object():
+                logger.warning(__('failed to import object %s'), real_name)
+                items.append((display_name, '', '', real_name))
+                continue
+            if documenter.options.members and not documenter.check_module():
+                continue
+
+            # try to also get a source code analyzer for attribute docs
+            try:
+                documenter.analyzer = ModuleAnalyzer.for_module(
+                    documenter.get_real_modname())
+                # parse right now, to get PycodeErrors on parsing (results will
+                # be cached anyway)
+                documenter.analyzer.find_attr_docs()
+            except PycodeError as err:
+                logger.debug('[autodoc] module analyzer failed: %s', err)
+                # no source file -- e.g. for builtin and C modules
+                documenter.analyzer = None
+
+            # -- Grab the signature
+
+            try:
+                sig = documenter.format_signature(show_annotation=False)
+            except TypeError:
+                # the documenter does not support ``show_annotation`` option
+                sig = documenter.format_signature()
+
+            if not sig:
+                sig = ''
+            else:
+                max_chars = max(10, max_item_chars - len(display_name))
+                sig = mangle_signature(sig, max_chars=max_chars)
+
+            # -- Grab the summary
+
+            documenter.add_content(None)
+            summary = extract_summary(self.bridge.result.data[:], self.state.document)
+
+            items.append((display_name, sig, summary, real_name))
+
+        return items
+
+    def get_table(self, items: List[Tuple[str, str, str, str]]) -> List[Node]:
+        """Generate a proper list of table nodes for autosummary:: directive.
+
+        *items* is a list produced by :meth:`get_items`.
+        """
+        table_spec = addnodes.tabular_col_spec()
+        table_spec['spec'] = r'\X{1}{2}\X{1}{2}'
+
+        table = autosummary_table('')
+        real_table = nodes.table('', classes=['longtable'])
+        table.append(real_table)
+        group = nodes.tgroup('', cols=2)
+        real_table.append(group)
+        group.append(nodes.colspec('', colwidth=10))
+        group.append(nodes.colspec('', colwidth=90))
+        body = nodes.tbody('')
+        group.append(body)
+
+        def append_row(*column_texts: str) -> None:
+            row = nodes.row('')
+            source, line = self.state_machine.get_source_and_line()
+            for text in column_texts:
+                node = nodes.paragraph('')
+                vl = StringList()
+                vl.append(text, '%s:%d:<autosummary>' % (source, line))
+                with switch_source_input(self.state, vl):
+                    self.state.nested_parse(vl, 0, node)
+                    try:
+                        if isinstance(node[0], nodes.paragraph):
+                            node = node[0]
+                    except IndexError:
+                        pass
+                    row.append(nodes.entry('', node))
+            body.append(row)
+
+        for name, sig, summary, real_name in items:
+            qualifier = 'obj'
+            if 'nosignatures' not in self.options:
+                col1 = ':%s:`%s <%s>`\\ %s' % (qualifier, name, real_name, rst.escape(sig))
+            else:
+                col1 = ':%s:`%s <%s>`' % (qualifier, name, real_name)
+            col2 = summary
+            append_row(col1, col2)
+
+        return [table_spec, table]
+
+    def warn(self, msg: str) -> None:
+        warnings.warn('Autosummary.warn() is deprecated',
+                      RemovedInSphinx40Warning, stacklevel=2)
+        logger.warning(msg)
+
+    @property
+    def genopt(self) -> Options:
+        warnings.warn('Autosummary.genopt is deprecated',
+                      RemovedInSphinx40Warning, stacklevel=2)
+        return self.bridge.genopt
+
+    @property
+    def warnings(self) -> List[Node]:
+        warnings.warn('Autosummary.warnings is deprecated',
+                      RemovedInSphinx40Warning, stacklevel=2)
+        return []
+
+    @property
+    def result(self) -> StringList:
+        warnings.warn('Autosummary.result is deprecated',
+                      RemovedInSphinx40Warning, stacklevel=2)
+        return self.bridge.result
+
+
+def strip_arg_typehint(s: str) -> str:
+    """Strip a type hint from argument definition."""
+    return s.split(':')[0].strip()
+
+
+def mangle_signature(sig: str, max_chars: int = 30) -> str:
+    """Reformat a function signature to a more compact form."""
+    # Strip return type annotation
+...
+```
+--- END FILE ---
+
+Please first localize the bug based on the issue statement, and then generate *SEARCH/REPLACE* edits to fix the issue.
+
+Every *SEARCH/REPLACE* edit must use this format:
+1. The file path
+2. The start of search block: <<<<<<< SEARCH
+3. A contiguous chunk of lines to search for in the existing source code
+4. The dividing line: =======
+5. The lines to replace into the source code
+6. The end of the replace block: >>>>>>> REPLACE
+
+Here is an example:
+
+```python
+### mathweb/flask/app.py
+<<<<<<< SEARCH
+from flask import Flask
+=======
+import math
+from flask import Flask
+>>>>>>> REPLACE
+```
+
+Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
+Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
+2024-10-18 14:07:38,640 - INFO - Creating API request
+2024-10-18 14:07:41,458 - INFO - API response ChatCompletion(id='chatcmpl-AJoU7qbvCEqKoAo7f9EPur4SOyQjy', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="To address the issue where the `members` variable for the module template contains imported members even if `autosummary_imported_members` is set to `False`, we need to modify the `generate_autosummary_content` function in `sphinx/ext/autosummary/generate.py`. Specifically, we need to ensure that the `members` list respects the `imported_members` flag.\n\nHere are the necessary *SEARCH/REPLACE* edits:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThis change ensures that the `members` list only includes imported members if `imported_members` is `True`. If `imported_members` is `False`, it filters out the imported members by checking if the member's `__module__` attribute matches the module's name.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285659, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_28a34a3a6a', usage=CompletionUsage(completion_tokens=211, prompt_tokens=3722, total_tokens=3933, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:07:41,505 - INFO - Creating API request
+2024-10-18 14:07:46,275 - INFO - API response ChatCompletion(id='chatcmpl-AJoUA2rdKJwUQGs2ce8mVzjXXnUuw', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="Based on the provided issue statement and the code, it seems the problem lies in the `generate_autosummary_content` function within the file `sphinx/ext/autosummary/generate.py`. Specifically, the `get_members` function uses the `imported` parameter to determine whether to include imported members, but this does not apply when setting `ns['members']`.\n\nTo ensure that imported members are excluded when `autosummary_imported_members` is `False`, we need to filter out imported members when setting `ns['members']`.\n\nHere are the necessary *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThis change filters the `members` to exclude those which are not originally from the module when `imported_members` is `False`. This should address the issue described in the bug report.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, the primary problem is that the `members` variable for the module template includes imported members even when `autosummary_imported_members` is set to `False`. This is despite the configuration indicating that imported members should be excluded.\n\nThe problem likely lies in the way the `members` list is populated in the `generate_autosummary_content` function. Specifically, the line that sets `ns['members']` to `dir(obj)` does not take into account the `imported_members` flag.\n\nTo fix this, we can adjust the logic to filter out imported members if `imported_members` is set to `False`.\n\nHere's the *SEARCH/REPLACE* edit to fix the issue:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThis change ensures that the `members` list only includes members that are not imported if `imported_members` is set to `False`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content="Upon analysis of the given files and the issue description, it appears that the bug is in the part of the code where members of the module are being collected. Specifically, in the function `generate_autosummary_content` within the file `generate.py`, the `members` variable is populated by listing all elements provided by `dir(obj)`.\n\nTo fix this issue, we need to filter out the imported members when the `autosummary_imported_members` configuration is set to `False`. This requires modifying the block where `members` is assigned.\n\nHere are the necessary *SEARCH/REPLACE* edits:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThe above change ensures that when `imported_members` is `False`, only members belonging to the module itself (and not imported members) are included in the `members` list.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content="Sure, based on the issue description, it seems the problem is related to the function `generate_autosummary_content` in `sphinx/ext/autosummary/generate.py`. Specifically, the `members` variable for a module should not include imported members when `autosummary_imported_members` is set to `False`.\n\nHere is the *SEARCH/REPLACE* edit to address the issue:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThis edit ensures that the `members` variable only includes members that belong to the module itself when `imported_members` is `False`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=4, logprobs=None, message=ChatCompletionMessage(content="To address the issue where `autosummary` includes imported members even if `autosummary_imported_members` is set to `False`, we need to modify the function `generate_autosummary_content` in the `generate.py` file. Specifically, the problem lies in the assignment to `ns['members']` which should respect the `imported_members` flag.\n\nHere are the *SEARCH/REPLACE* edits to fix this issue:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\nThis change ensures that only members belonging to the module itself are included when `imported_members` is `False`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=5, logprobs=None, message=ChatCompletionMessage(content="The problem as described in the issue is that the `members` variable in the template contains imported members even when `autosummary_imported_members` is set to `False`. This suggests that the `generate_autosummary_content` function in `generate.py` is not respecting the `imported_members` flag correctly when setting the `members` variable.\n\nI'll provide the *SEARCH/REPLACE* edit to fix this issue.\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThis change ensures that if `imported_members` is `False`, only members that are defined in the module itself (not imported ones) are included in the `members` variable.\n\nThe rest of the code looks fine and does not need any changes based on the provided issue statement.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=6, logprobs=None, message=ChatCompletionMessage(content="To address the issue where `autosummary` includes imported members even if `autosummary_imported_members` is set to `False`, we need to ensure that the `members` variable honors this configuration. The most likely area to address this is in the `generate_autosummary_content` function where `members` are populated for a module.\n\nHere's the modification:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=7, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, the problem lies within how the `members` variable is populated in the `generate_autosummary_content` function, specifically for modules. The `dir(obj)` function is used to get the `members`, but it doesn't account for the `autosummary_imported_members` setting.\n\nWe'll need to adjust the code to filter out imported members from the `members` list when `autosummary_imported_members` is set to `False`.\n\nHere's the necessary *SEARCH/REPLACE* edit to fix the issue:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE\n```\n\nThis change ensures that the `members` list only includes members of the module itself, excluding any imported members when `imported_members` is set to `False`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=8, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, the problem lies in the handling of the `members` variable when generating autosummary content for a module. Specifically, the `members` variable contains imported members even if the `autosummary_imported_members` option is set to `False`.\n\nTo fix this issue, we need to modify the function `generate_autosummary_content` in `sphinx/ext/autosummary/generate.py` to filter out imported members from the `members` variable if `autosummary_imported_members` is `False`.\n\nHere are the necessary changes:\n\n```python\n### sphinx/ext/autosummary/generate.py\n<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE\n```\n\nThis code change checks whether `imported_members` is `True` or `False`. If `True`, it includes all members using `dir(obj)`. If `False`, it filters out members that are imported from other modules.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729285662, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_28a34a3a6a', usage=CompletionUsage(completion_tokens=1899, prompt_tokens=3722, total_tokens=5621, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 14:07:46,275 - INFO - raw output:
+To address the issue where the `members` variable for the module template contains imported members even if `autosummary_imported_members` is set to `False`, we need to modify the `generate_autosummary_content` function in `sphinx/ext/autosummary/generate.py`. Specifically, we need to ensure that the `members` list respects the `imported_members` flag.
+
+Here are the necessary *SEARCH/REPLACE* edits:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+This change ensures that the `members` list only includes imported members if `imported_members` is `True`. If `imported_members` is `False`, it filters out the imported members by checking if the member's `__module__` attribute matches the module's name.
+2024-10-18 14:07:46,276 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,276 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,276 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,276 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,276 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,276 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,277 - INFO - extracted patch:
+2024-10-18 14:07:46,277 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,277 - INFO - raw output:
+Based on the provided issue statement and the code, it seems the problem lies in the `generate_autosummary_content` function within the file `sphinx/ext/autosummary/generate.py`. Specifically, the `get_members` function uses the `imported` parameter to determine whether to include imported members, but this does not apply when setting `ns['members']`.
+
+To ensure that imported members are excluded when `autosummary_imported_members` is `False`, we need to filter out imported members when setting `ns['members']`.
+
+Here are the necessary *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+This change filters the `members` to exclude those which are not originally from the module when `imported_members` is `False`. This should address the issue described in the bug report.
+2024-10-18 14:07:46,277 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,277 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,277 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,277 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,277 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,277 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,278 - INFO - extracted patch:
+2024-10-18 14:07:46,278 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,278 - INFO - raw output:
+Based on the issue statement, the primary problem is that the `members` variable for the module template includes imported members even when `autosummary_imported_members` is set to `False`. This is despite the configuration indicating that imported members should be excluded.
+
+The problem likely lies in the way the `members` list is populated in the `generate_autosummary_content` function. Specifically, the line that sets `ns['members']` to `dir(obj)` does not take into account the `imported_members` flag.
+
+To fix this, we can adjust the logic to filter out imported members if `imported_members` is set to `False`.
+
+Here's the *SEARCH/REPLACE* edit to fix the issue:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+This change ensures that the `members` list only includes members that are not imported if `imported_members` is set to `False`.
+2024-10-18 14:07:46,279 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,279 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,279 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,279 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,279 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,279 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,280 - INFO - extracted patch:
+2024-10-18 14:07:46,280 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,280 - INFO - raw output:
+Upon analysis of the given files and the issue description, it appears that the bug is in the part of the code where members of the module are being collected. Specifically, in the function `generate_autosummary_content` within the file `generate.py`, the `members` variable is populated by listing all elements provided by `dir(obj)`.
+
+To fix this issue, we need to filter out the imported members when the `autosummary_imported_members` configuration is set to `False`. This requires modifying the block where `members` is assigned.
+
+Here are the necessary *SEARCH/REPLACE* edits:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+The above change ensures that when `imported_members` is `False`, only members belonging to the module itself (and not imported members) are included in the `members` list.
+2024-10-18 14:07:46,280 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,280 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,280 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,280 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,280 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,280 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,281 - INFO - extracted patch:
+2024-10-18 14:07:46,281 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,281 - INFO - raw output:
+Sure, based on the issue description, it seems the problem is related to the function `generate_autosummary_content` in `sphinx/ext/autosummary/generate.py`. Specifically, the `members` variable for a module should not include imported members when `autosummary_imported_members` is set to `False`.
+
+Here is the *SEARCH/REPLACE* edit to address the issue:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+This edit ensures that the `members` variable only includes members that belong to the module itself when `imported_members` is `False`.
+2024-10-18 14:07:46,281 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,281 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,281 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,281 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,281 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,281 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,282 - INFO - extracted patch:
+2024-10-18 14:07:46,282 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,282 - INFO - raw output:
+To address the issue where `autosummary` includes imported members even if `autosummary_imported_members` is set to `False`, we need to modify the function `generate_autosummary_content` in the `generate.py` file. Specifically, the problem lies in the assignment to `ns['members']` which should respect the `imported_members` flag.
+
+Here are the *SEARCH/REPLACE* edits to fix this issue:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+This change ensures that only members belonging to the module itself are included when `imported_members` is `False`.
+2024-10-18 14:07:46,282 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,283 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,283 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,283 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,283 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,283 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,284 - INFO - extracted patch:
+2024-10-18 14:07:46,284 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,284 - INFO - raw output:
+The problem as described in the issue is that the `members` variable in the template contains imported members even when `autosummary_imported_members` is set to `False`. This suggests that the `generate_autosummary_content` function in `generate.py` is not respecting the `imported_members` flag correctly when setting the `members` variable.
+
+I'll provide the *SEARCH/REPLACE* edit to fix this issue.
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+This change ensures that if `imported_members` is `False`, only members that are defined in the module itself (not imported ones) are included in the `members` variable.
+
+The rest of the code looks fine and does not need any changes based on the provided issue statement.
+2024-10-18 14:07:46,284 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,284 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,284 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,284 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,284 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,284 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,285 - INFO - extracted patch:
+2024-10-18 14:07:46,285 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,285 - INFO - raw output:
+To address the issue where `autosummary` includes imported members even if `autosummary_imported_members` is set to `False`, we need to ensure that the `members` variable honors this configuration. The most likely area to address this is in the `generate_autosummary_content` function where `members` are populated for a module.
+
+Here's the modification:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+```
+2024-10-18 14:07:46,285 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,285 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,285 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,285 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,285 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,285 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,286 - INFO - extracted patch:
+2024-10-18 14:07:46,286 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,286 - INFO - raw output:
+Based on the issue statement, the problem lies within how the `members` variable is populated in the `generate_autosummary_content` function, specifically for modules. The `dir(obj)` function is used to get the `members`, but it doesn't account for the `autosummary_imported_members` setting.
+
+We'll need to adjust the code to filter out imported members from the `members` list when `autosummary_imported_members` is set to `False`.
+
+Here's the necessary *SEARCH/REPLACE* edit to fix the issue:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+```
+
+This change ensures that the `members` list only includes members of the module itself, excluding any imported members when `imported_members` is set to `False`.
+2024-10-18 14:07:46,286 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,286 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,286 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,286 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,286 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,286 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,288 - INFO - extracted patch:
+2024-10-18 14:07:46,288 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,288 - INFO - raw output:
+Based on the issue statement, the problem lies in the handling of the `members` variable when generating autosummary content for a module. Specifically, the `members` variable contains imported members even if the `autosummary_imported_members` option is set to `False`.
+
+To fix this issue, we need to modify the function `generate_autosummary_content` in `sphinx/ext/autosummary/generate.py` to filter out imported members from the `members` variable if `autosummary_imported_members` is `False`.
+
+Here are the necessary changes:
+
+```python
+### sphinx/ext/autosummary/generate.py
+<<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+```
+
+This code change checks whether `imported_members` is `True` or `False`. If `True`, it includes all members using `dir(obj)`. If `False`, it filters out members that are imported from other modules.
+2024-10-18 14:07:46,288 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,288 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,288 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,288 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,288 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,288 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,289 - INFO - extracted patch:
+2024-10-18 14:07:46,289 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,627 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,627 - INFO - === file_to_commands: ===
+2024-10-18 14:07:46,627 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,627 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:46,627 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,627 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:46,627 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,627 - INFO - === edit_commands: ===
+2024-10-18 14:07:46,627 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,627 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:46,627 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,627 - INFO - 
+----------------------------------------
+2024-10-18 14:07:46,628 - INFO - extracted patch:
+2024-10-18 14:07:46,628 - INFO - extracted patch:
+2024-10-18 14:07:46,628 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:46,628 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,170 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,170 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,170 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,170 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,170 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,170 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,170 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,170 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,170 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,170 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,170 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,170 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,170 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,170 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,170 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,170 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,170 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,170 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,171 - INFO - extracted patch:
+2024-10-18 14:07:47,171 - INFO - extracted patch:
+2024-10-18 14:07:47,171 - INFO - extracted patch:
+2024-10-18 14:07:47,172 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,172 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,172 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,714 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,714 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,714 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,714 - INFO - === file_to_commands: ===
+2024-10-18 14:07:47,714 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,714 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,714 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,714 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:47,714 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,714 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,714 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,714 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:47,714 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,714 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,714 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,714 - INFO - === edit_commands: ===
+2024-10-18 14:07:47,714 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,714 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,714 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,714 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:47,714 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,714 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,714 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,714 - INFO - 
+----------------------------------------
+2024-10-18 14:07:47,715 - INFO - extracted patch:
+2024-10-18 14:07:47,715 - INFO - extracted patch:
+2024-10-18 14:07:47,715 - INFO - extracted patch:
+2024-10-18 14:07:47,715 - INFO - extracted patch:
+2024-10-18 14:07:47,716 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,716 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,716 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:47,716 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj) if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,207 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,207 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,207 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,207 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,207 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,207 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,207 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,207 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,207 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,207 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,207 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,207 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,207 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,207 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,207 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,207 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,207 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,207 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,207 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,207 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,208 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,208 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,208 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,208 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,208 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,208 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,208 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,208 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,208 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,208 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,209 - INFO - extracted patch:
+2024-10-18 14:07:48,209 - INFO - extracted patch:
+2024-10-18 14:07:48,209 - INFO - extracted patch:
+2024-10-18 14:07:48,209 - INFO - extracted patch:
+2024-10-18 14:07:48,209 - INFO - extracted patch:
+2024-10-18 14:07:48,209 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,209 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,209 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,209 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,209 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,644 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,644 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,644 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,644 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,644 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,644 - INFO - === file_to_commands: ===
+2024-10-18 14:07:48,644 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,644 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,644 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,644 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,644 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,644 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:48,644 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,644 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,644 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,644 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,644 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,644 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:48,644 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,644 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,644 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,644 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,644 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,644 - INFO - === edit_commands: ===
+2024-10-18 14:07:48,644 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,644 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,644 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,644 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,644 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,644 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:48,644 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,644 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,644 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,644 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,644 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,644 - INFO - 
+----------------------------------------
+2024-10-18 14:07:48,645 - INFO - extracted patch:
+2024-10-18 14:07:48,645 - INFO - extracted patch:
+2024-10-18 14:07:48,645 - INFO - extracted patch:
+2024-10-18 14:07:48,645 - INFO - extracted patch:
+2024-10-18 14:07:48,645 - INFO - extracted patch:
+2024-10-18 14:07:48,645 - INFO - extracted patch:
+2024-10-18 14:07:48,645 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,645 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,645 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,645 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,645 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:48,645 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(obj, m, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [name for name in dir(obj)\n                         if imported_members or getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [name for name in dir(obj)
+                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,122 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,123 - INFO - extracted patch:
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,124 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +260,8 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [name for name in dir(obj)
++                         if imported_members or getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - === file_to_commands: ===
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,676 - INFO - === edit_commands: ===
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,677 - INFO - 
+----------------------------------------
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - extracted patch:
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:49,678 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,164 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,165 - INFO - extracted patch:
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,166 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,7 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +259,7 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        ns['members'] = [m for m in dir(obj) if imported_members or getattr(safe_getattr(obj, m), '__module__', None) == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - === file_to_commands: ===
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,743 - INFO - === edit_commands: ===
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+>>>>>>> REPLACE
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,744 - INFO - 
+----------------------------------------
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - extracted patch:
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:50,745 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [name for name in dir(obj) if getattr(obj, name, None).__module__ == obj.__name__]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - === file_to_commands: ===
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - {
+  "'sphinx/ext/autosummary/generate.py'": [
+    "<<<<<<< SEARCH\n        ns['members'] = dir(obj)\n=======\n        if imported_members:\n            ns['members'] = dir(obj)\n        else:\n            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edited_file: 'sphinx/ext/autosummary/generate.py' ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - === edit_commands: ===
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - <<<<<<< SEARCH
+        ns['members'] = dir(obj)
+=======
+        if imported_members:
+            ns['members'] = dir(obj)
+        else:
+            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+>>>>>>> REPLACE
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,234 - INFO - 
+----------------------------------------
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - extracted patch:
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \
+2024-10-18 14:07:51,235 - INFO - --- sphinx/ext/autosummary/generate.py
++++ sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,10 @@
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+@@ -259,7 +262,10 @@
+         if ispackage and recursive:
+             ns['modules'], ns['all_modules'] = get_modules(obj)
+     elif doc.objtype == 'class':
+-        ns['members'] = dir(obj)
++        if imported_members:
++            ns['members'] = dir(obj)
++        else:
++            ns['members'] = [m for m in dir(obj) if not (hasattr(obj, m) and hasattr(getattr(obj, m), '__module__') and getattr(obj, m).__module__ != obj.__name__)]
+         ns['inherited_members'] = \
+             set(dir(obj)) - set(obj.__dict__.keys())
+         ns['methods'], ns['all_methods'] = \

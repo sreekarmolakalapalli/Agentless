@@ -1,0 +1,3466 @@
+2024-10-18 13:25:38,803 - INFO - ================ repairing django__django-11049 ================
+2024-10-18 13:26:13,272 - INFO - prompting with message:
+We are currently solving the following issue within our repository. Here is the issue text:
+--- BEGIN ISSUE ---
+Correct expected format in invalid DurationField error message
+Description
+	
+If you enter a duration "14:00" into a duration field, it translates to "00:14:00" which is 14 minutes.
+The current error message for invalid DurationField says that this should be the format of durations: "[DD] [HH:[MM:]]ss[.uuuuuu]". But according to the actual behaviour, it should be: "[DD] [[HH:]MM:]ss[.uuuuuu]", because seconds are mandatory, minutes are optional, and hours are optional if minutes are provided.
+This seems to be a mistake in all Django versions that support the DurationField.
+Also the duration fields could have a default help_text with the requested format, because the syntax is not self-explanatory.
+
+--- END ISSUE ---
+
+
+
+
+Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
+
+--- BEGIN FILE ---
+```
+### django/forms/fields.py
+...
+        if isinstance(value, datetime.date):
+            result = datetime.datetime(value.year, value.month, value.day)
+            return from_current_timezone(result)
+        result = super().to_python(value)
+        return from_current_timezone(result)
+
+    def strptime(self, value, format):
+        return datetime.datetime.strptime(value, format)
+
+
+class DurationField(Field):
+    default_error_messages = {
+        'invalid': _('Enter a valid duration.'),
+        'overflow': _('The number of days must be between {min_days} and {max_days}.')
+    }
+
+    def prepare_value(self, value):
+        if isinstance(value, datetime.timedelta):
+            return duration_string(value)
+        return value
+
+    def to_python(self, value):
+        if value in self.empty_values:
+            return None
+        if isinstance(value, datetime.timedelta):
+            return value
+        try:
+            value = parse_duration(str(value))
+        except OverflowError:
+            raise ValidationError(self.error_messages['overflow'].format(
+                min_days=datetime.timedelta.min.days,
+                max_days=datetime.timedelta.max.days,
+            ), code='overflow')
+        if value is None:
+            raise ValidationError(self.error_messages['invalid'], code='invalid')
+        return value
+
+
+class RegexField(CharField):
+    def __init__(self, regex, **kwargs):
+        """
+        regex can be either a string or a compiled regular expression object.
+        """
+        kwargs.setdefault('strip', False)
+        super().__init__(**kwargs)
+        self._set_regex(regex)
+...
+
+
+### django/utils/duration.py
+import datetime
+
+
+def _get_duration_components(duration):
+    days = duration.days
+    seconds = duration.seconds
+    microseconds = duration.microseconds
+
+    minutes = seconds // 60
+    seconds = seconds % 60
+
+    hours = minutes // 60
+    minutes = minutes % 60
+
+    return days, hours, minutes, seconds, microseconds
+
+
+def duration_string(duration):
+    """Version of str(timedelta) which is not English specific."""
+    days, hours, minutes, seconds, microseconds = _get_duration_components(duration)
+
+    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)
+    if days:
+        string = '{} '.format(days) + string
+    if microseconds:
+        string += '.{:06d}'.format(microseconds)
+
+    return string
+
+
+def duration_iso_string(duration):
+    if duration < datetime.timedelta(0):
+        sign = '-'
+        duration *= -1
+    else:
+        sign = ''
+
+    days, hours, minutes, seconds, microseconds = _get_duration_components(duration)
+...
+```
+--- END FILE ---
+
+Please first localize the bug based on the issue statement, and then generate *SEARCH/REPLACE* edits to fix the issue.
+
+Every *SEARCH/REPLACE* edit must use this format:
+1. The file path
+2. The start of search block: <<<<<<< SEARCH
+3. A contiguous chunk of lines to search for in the existing source code
+4. The dividing line: =======
+5. The lines to replace into the source code
+6. The end of the replace block: >>>>>>> REPLACE
+
+Here is an example:
+
+```python
+### mathweb/flask/app.py
+<<<<<<< SEARCH
+from flask import Flask
+=======
+import math
+from flask import Flask
+>>>>>>> REPLACE
+```
+
+Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
+Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
+2024-10-18 13:26:13,367 - INFO - Creating API request
+2024-10-18 13:26:17,684 - INFO - API response ChatCompletion(id='chatcmpl-AJnq17AAEr9X9xvyWQRfWynqBk3l7', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, the error message for the `DurationField` should be corrected to reflect the actual format of durations. The current format in the error message is incorrect. We need to update the error message to the correct format.\n\nHere are the necessary *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\nAdditionally, we can add a default `help_text` to the `DurationField` to provide guidance on the expected format:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nThese changes will update the error message to the correct format and provide a default help text for the `DurationField`.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729283173, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=270, prompt_tokens=994, total_tokens=1264, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:26:17,773 - INFO - Creating API request
+2024-10-18 13:26:22,814 - INFO - API response ChatCompletion(id='chatcmpl-AJnq6WzAV1gCfJIekfGnqV7HW8Q7I', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="Based on the issue statement, it seems that the error message for the `DurationField` in Django is incorrect and should be updated to reflect the correct format of the duration string. Additionally, it would be beneficial to provide a default `help_text` to clarify the format for users.\n\nHere are the necessary changes in the relevant files:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\nTo provide default `help_text` for the `DurationField`, we can modify the `__init__` method of the `DurationField` class to include this.\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nThese changes will ensure that the error message correctly reflects the expected format for the `DurationField` and that users have help text to guide them when entering durations.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content='Based on the issue statement, the error message for the invalid `DurationField` format should be corrected. Additionally, it would be helpful to add a default `help_text` to guide users on the expected format.\n\nHere are the necessary *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        \'invalid\': _(\'Enter a valid duration.\'),\n=======\n        \'invalid\': _(\'Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".\'),\n>>>>>>> REPLACE\n```\n\nAdditionally, let\'s add the `help_text` to the `DurationField`:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault(\'help_text\', _(\'Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".\'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nThese changes will ensure the error message and the help text for the `DurationField` are accurate and helpful to users.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content="The issue text indicates that the error message for the `DurationField` should be corrected to better reflect the actual accepted format for durations. The current message incorrectly suggests that the format includes mandatory hours and optional seconds, which is not the case according to the described behavior.\n\nWe need to correct the error message in the `DurationField` class.\n\nHere are the *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\nAdditionally, if we want to provide default help text, we can add that as well:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nThese changes will ensure that users are provided with the correct format for entering durations and help them understand the expected input format better.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content="Sure, based on the issue description, it seems the error message format for `DurationField` needs to be corrected to match the actual behavior. Additionally, it would be helpful to provide default `help_text` for the `DurationField`.\n\nHere are the necessary changes:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=4, logprobs=None, message=ChatCompletionMessage(content="```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\n```python\n### django/utils/duration.py\n<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=5, logprobs=None, message=ChatCompletionMessage(content='Based on the issue description, the main problem lies in the expected format provided for the `DurationField`. The expected format should be corrected to "[DD] [[HH:]MM:]ss[.uuuuuu]".\n\nAdditionally, we will add a `help_text` to the `DurationField` to provide a default hint for users.\n\nLet\'s locate the relevant part in the `django/forms/fields.py` file and make the necessary updates to the format in the error message. We will also add the `help_text`.\n\nHere are the `SEARCH/REPLACE` edits to fix the issue:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _(\'Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"\')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault(\'help_text\', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nNow let\'s correct the expected format in the error message.\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        \'invalid\': _(\'Enter a valid duration.\'),\n=======\n        \'invalid\': _(\'Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".\'),\n>>>>>>> REPLACE\n```\n\nThese changes ensure that the error message for the `DurationField` is accurate according to its behavior, and the `help_text` provides a useful hint to users about the expected format.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=6, logprobs=None, message=ChatCompletionMessage(content="```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\n```python\n### django/utils/duration.py\n<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE\n```", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=7, logprobs=None, message=ChatCompletionMessage(content="To address the issue described, we need to correct the expected format in the `DurationField` error message and possibly provide a default help_text. Here are the necessary changes:\n\n1. Update the error message format in `django/forms/fields.py`.\n2. Optionally, add a `help_text` for `DurationField`.\n\nBelow are the *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\nTo add a `help_text` with the requested format for `DurationField`, you can modify the `DurationField` class to include a default `help_text`. Here's how you can add it:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nThese changes will correct the error message format and provide a help text to guide users on the expected format for `DurationField`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=8, logprobs=None, message=ChatCompletionMessage(content="Here is the *SEARCH/REPLACE* edit based on the issue statement and the provided code segments:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE\n```\n\nAdditionally, to add `help_text` with the requested format for `DurationField`:\n\n```python\n### django/forms/fields.py\n<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE\n```\n\nThese changes update the error message to correctly reflect the expected format and provide a default help text for the `DurationField`.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729283178, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=1998, prompt_tokens=994, total_tokens=2992, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:26:22,814 - INFO - raw output:
+Based on the issue statement, the error message for the `DurationField` should be corrected to reflect the actual format of durations. The current format in the error message is incorrect. We need to update the error message to the correct format.
+
+Here are the necessary *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+Additionally, we can add a default `help_text` to the `DurationField` to provide guidance on the expected format:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+These changes will update the error message to the correct format and provide a default help text for the `DurationField`.
+2024-10-18 13:26:22,815 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,815 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,815 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,815 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,815 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,815 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,815 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,815 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,821 - INFO - extracted patch:
+2024-10-18 13:26:22,821 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:22,821 - INFO - raw output:
+Based on the issue statement, it seems that the error message for the `DurationField` in Django is incorrect and should be updated to reflect the correct format of the duration string. Additionally, it would be beneficial to provide a default `help_text` to clarify the format for users.
+
+Here are the necessary changes in the relevant files:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+To provide default `help_text` for the `DurationField`, we can modify the `__init__` method of the `DurationField` class to include this.
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+These changes will ensure that the error message correctly reflects the expected format for the `DurationField` and that users have help text to guide them when entering durations.
+2024-10-18 13:26:22,821 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,821 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,821 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,821 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,821 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,821 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,821 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,822 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,834 - INFO - extracted patch:
+2024-10-18 13:26:22,834 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:22,835 - INFO - raw output:
+Based on the issue statement, the error message for the invalid `DurationField` format should be corrected. Additionally, it would be helpful to add a default `help_text` to guide users on the expected format.
+
+Here are the necessary *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+```
+
+Additionally, let's add the `help_text` to the `DurationField`:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+These changes will ensure the error message and the help text for the `DurationField` are accurate and helpful to users.
+2024-10-18 13:26:22,835 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,835 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,835 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,835 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,835 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,835 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,835 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,835 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,841 - INFO - extracted patch:
+2024-10-18 13:26:22,841 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:22,841 - INFO - raw output:
+The issue text indicates that the error message for the `DurationField` should be corrected to better reflect the actual accepted format for durations. The current message incorrectly suggests that the format includes mandatory hours and optional seconds, which is not the case according to the described behavior.
+
+We need to correct the error message in the `DurationField` class.
+
+Here are the *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+Additionally, if we want to provide default help text, we can add that as well:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+These changes will ensure that users are provided with the correct format for entering durations and help them understand the expected input format better.
+2024-10-18 13:26:22,841 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,842 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,842 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,842 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,842 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,842 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,842 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,842 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,849 - INFO - extracted patch:
+2024-10-18 13:26:22,849 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,11 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:22,849 - INFO - raw output:
+Sure, based on the issue description, it seems the error message format for `DurationField` needs to be corrected to match the actual behavior. Additionally, it would be helpful to provide default `help_text` for the `DurationField`.
+
+Here are the necessary changes:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+2024-10-18 13:26:22,850 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,850 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,850 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,850 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,850 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,850 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,855 - INFO - extracted patch:
+2024-10-18 13:26:22,855 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:22,855 - INFO - raw output:
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+```python
+### django/utils/duration.py
+<<<<<<< SEARCH
+    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)
+=======
+    string = '{:02d}:{:02d}'.format(minutes, seconds)
+    if hours:
+        string = '{:02d}:'.format(hours) + string
+>>>>>>> REPLACE
+```
+2024-10-18 13:26:22,856 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,856 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,856 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,856 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,856 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,856 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,863 - INFO - extracted patch:
+2024-10-18 13:26:22,863 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:22,863 - INFO - raw output:
+Based on the issue description, the main problem lies in the expected format provided for the `DurationField`. The expected format should be corrected to "[DD] [[HH:]MM:]ss[.uuuuuu]".
+
+Additionally, we will add a `help_text` to the `DurationField` to provide a default hint for users.
+
+Let's locate the relevant part in the `django/forms/fields.py` file and make the necessary updates to the format in the error message. We will also add the `help_text`.
+
+Here are the `SEARCH/REPLACE` edits to fix the issue:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+Now let's correct the expected format in the error message.
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+```
+
+These changes ensure that the error message for the `DurationField` is accurate according to its behavior, and the `help_text` provides a useful hint to users about the expected format.
+2024-10-18 13:26:22,863 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,863 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,863 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,863 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,863 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,864 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,864 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,864 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,870 - INFO - extracted patch:
+2024-10-18 13:26:22,870 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:22,870 - INFO - raw output:
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+```python
+### django/utils/duration.py
+<<<<<<< SEARCH
+    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)
+=======
+    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)
+>>>>>>> REPLACE
+```
+2024-10-18 13:26:22,870 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,870 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,870 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,870 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,870 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,870 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,877 - INFO - extracted patch:
+2024-10-18 13:26:22,877 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:22,877 - INFO - raw output:
+To address the issue described, we need to correct the expected format in the `DurationField` error message and possibly provide a default help_text. Here are the necessary changes:
+
+1. Update the error message format in `django/forms/fields.py`.
+2. Optionally, add a `help_text` for `DurationField`.
+
+Below are the *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+To add a `help_text` with the requested format for `DurationField`, you can modify the `DurationField` class to include a default `help_text`. Here's how you can add it:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+These changes will correct the error message format and provide a help text to guide users on the expected format for `DurationField`.
+2024-10-18 13:26:22,878 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,878 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,878 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,878 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,878 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,878 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,878 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,878 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,884 - INFO - extracted patch:
+2024-10-18 13:26:22,885 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:22,885 - INFO - raw output:
+Here is the *SEARCH/REPLACE* edit based on the issue statement and the provided code segments:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+```
+
+Additionally, to add `help_text` with the requested format for `DurationField`:
+
+```python
+### django/forms/fields.py
+<<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+```
+
+These changes update the error message to correctly reflect the expected format and provide a default help text for the `DurationField`.
+2024-10-18 13:26:22,885 - INFO - === file_to_commands: ===
+2024-10-18 13:26:22,885 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:22,885 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:22,885 - INFO - === edit_commands: ===
+2024-10-18 13:26:22,885 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:22,885 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,885 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:22,885 - INFO - 
+----------------------------------------
+2024-10-18 13:26:22,891 - INFO - extracted patch:
+2024-10-18 13:26:22,892 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:24,034 - INFO - === file_to_commands: ===
+2024-10-18 13:26:24,034 - INFO - === file_to_commands: ===
+2024-10-18 13:26:24,034 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:24,034 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:24,034 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:24,034 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:24,034 - INFO - === edit_commands: ===
+2024-10-18 13:26:24,034 - INFO - === edit_commands: ===
+2024-10-18 13:26:24,034 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:24,034 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:24,034 - INFO - 
+----------------------------------------
+2024-10-18 13:26:24,034 - INFO - 
+----------------------------------------
+2024-10-18 13:26:24,034 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:24,034 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:24,035 - INFO - 
+----------------------------------------
+2024-10-18 13:26:24,035 - INFO - 
+----------------------------------------
+2024-10-18 13:26:24,039 - INFO - extracted patch:
+2024-10-18 13:26:24,039 - INFO - extracted patch:
+2024-10-18 13:26:24,039 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:24,039 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:25,769 - INFO - === file_to_commands: ===
+2024-10-18 13:26:25,769 - INFO - === file_to_commands: ===
+2024-10-18 13:26:25,769 - INFO - === file_to_commands: ===
+2024-10-18 13:26:25,769 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:25,769 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:25,769 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:25,769 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:25,769 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:25,769 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:25,769 - INFO - === edit_commands: ===
+2024-10-18 13:26:25,769 - INFO - === edit_commands: ===
+2024-10-18 13:26:25,769 - INFO - === edit_commands: ===
+2024-10-18 13:26:25,769 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:25,769 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:25,769 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:25,769 - INFO - 
+----------------------------------------
+2024-10-18 13:26:25,769 - INFO - 
+----------------------------------------
+2024-10-18 13:26:25,769 - INFO - 
+----------------------------------------
+2024-10-18 13:26:25,769 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:25,769 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:25,769 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:25,769 - INFO - 
+----------------------------------------
+2024-10-18 13:26:25,769 - INFO - 
+----------------------------------------
+2024-10-18 13:26:25,769 - INFO - 
+----------------------------------------
+2024-10-18 13:26:25,772 - INFO - extracted patch:
+2024-10-18 13:26:25,772 - INFO - extracted patch:
+2024-10-18 13:26:25,772 - INFO - extracted patch:
+2024-10-18 13:26:25,773 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:25,773 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:25,773 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:27,410 - INFO - === file_to_commands: ===
+2024-10-18 13:26:27,410 - INFO - === file_to_commands: ===
+2024-10-18 13:26:27,410 - INFO - === file_to_commands: ===
+2024-10-18 13:26:27,410 - INFO - === file_to_commands: ===
+2024-10-18 13:26:27,410 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:27,410 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:27,410 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:27,410 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in the format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:27,411 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:27,411 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:27,411 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:27,411 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:27,411 - INFO - === edit_commands: ===
+2024-10-18 13:26:27,411 - INFO - === edit_commands: ===
+2024-10-18 13:26:27,411 - INFO - === edit_commands: ===
+2024-10-18 13:26:27,411 - INFO - === edit_commands: ===
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,411 - INFO - 
+----------------------------------------
+2024-10-18 13:26:27,421 - INFO - extracted patch:
+2024-10-18 13:26:27,421 - INFO - extracted patch:
+2024-10-18 13:26:27,421 - INFO - extracted patch:
+2024-10-18 13:26:27,421 - INFO - extracted patch:
+2024-10-18 13:26:27,421 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:27,421 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:27,421 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:27,421 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in the format: "[DD] [[HH:]MM:]ss[.uuuuuu]".'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:29,235 - INFO - === file_to_commands: ===
+2024-10-18 13:26:29,235 - INFO - === file_to_commands: ===
+2024-10-18 13:26:29,235 - INFO - === file_to_commands: ===
+2024-10-18 13:26:29,235 - INFO - === file_to_commands: ===
+2024-10-18 13:26:29,235 - INFO - === file_to_commands: ===
+2024-10-18 13:26:29,235 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:29,235 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:29,235 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:29,235 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:29,235 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:29,235 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:29,235 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:29,235 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:29,235 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:29,235 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:29,236 - INFO - === edit_commands: ===
+2024-10-18 13:26:29,236 - INFO - === edit_commands: ===
+2024-10-18 13:26:29,236 - INFO - === edit_commands: ===
+2024-10-18 13:26:29,236 - INFO - === edit_commands: ===
+2024-10-18 13:26:29,236 - INFO - === edit_commands: ===
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,236 - INFO - 
+----------------------------------------
+2024-10-18 13:26:29,241 - INFO - extracted patch:
+2024-10-18 13:26:29,241 - INFO - extracted patch:
+2024-10-18 13:26:29,241 - INFO - extracted patch:
+2024-10-18 13:26:29,241 - INFO - extracted patch:
+2024-10-18 13:26:29,241 - INFO - extracted patch:
+2024-10-18 13:26:29,241 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,11 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:29,241 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,11 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:29,241 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,11 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:29,241 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,11 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:29,241 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,11 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    help_text = _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:31,159 - INFO - === file_to_commands: ===
+2024-10-18 13:26:31,159 - INFO - === file_to_commands: ===
+2024-10-18 13:26:31,159 - INFO - === file_to_commands: ===
+2024-10-18 13:26:31,159 - INFO - === file_to_commands: ===
+2024-10-18 13:26:31,159 - INFO - === file_to_commands: ===
+2024-10-18 13:26:31,159 - INFO - === file_to_commands: ===
+2024-10-18 13:26:31,160 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:31,160 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:31,160 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:31,160 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:31,160 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:31,160 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:31,160 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:31,160 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:31,160 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:31,160 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:31,160 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:31,160 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:31,160 - INFO - === edit_commands: ===
+2024-10-18 13:26:31,160 - INFO - === edit_commands: ===
+2024-10-18 13:26:31,160 - INFO - === edit_commands: ===
+2024-10-18 13:26:31,160 - INFO - === edit_commands: ===
+2024-10-18 13:26:31,160 - INFO - === edit_commands: ===
+2024-10-18 13:26:31,160 - INFO - === edit_commands: ===
+2024-10-18 13:26:31,160 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:31,160 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:31,160 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:31,160 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:31,160 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:31,160 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:31,160 - INFO - 
+----------------------------------------
+2024-10-18 13:26:31,160 - INFO - 
+----------------------------------------
+2024-10-18 13:26:31,160 - INFO - 
+----------------------------------------
+2024-10-18 13:26:31,160 - INFO - 
+----------------------------------------
+2024-10-18 13:26:31,160 - INFO - 
+----------------------------------------
+2024-10-18 13:26:31,160 - INFO - 
+----------------------------------------
+2024-10-18 13:26:31,163 - INFO - extracted patch:
+2024-10-18 13:26:31,163 - INFO - extracted patch:
+2024-10-18 13:26:31,163 - INFO - extracted patch:
+2024-10-18 13:26:31,163 - INFO - extracted patch:
+2024-10-18 13:26:31,163 - INFO - extracted patch:
+2024-10-18 13:26:31,163 - INFO - extracted patch:
+2024-10-18 13:26:31,163 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:31,163 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:31,163 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:31,163 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:31,163 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:31,163 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - === file_to_commands: ===
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,760 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}'.format(minutes, seconds)\n    if hours:\n        string = '{:02d}:'.format(hours) + string\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - === edit_commands: ===
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,761 - INFO - 
+----------------------------------------
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - extracted patch:
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:32,764 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration. The format should be [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,279 - INFO - === file_to_commands: ===
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Format: \"[DD] [[HH:]MM:]ss[.uuuuuu]\"')\n\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format of \"[DD] [[HH:]MM:]ss[.uuuuuu]\".'),\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - === edit_commands: ===
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+>>>>>>> REPLACE
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,280 - INFO - 
+----------------------------------------
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,285 - INFO - extracted patch:
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:34,286 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format of "[DD] [[HH:]MM:]ss[.uuuuuu]".'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Format: "[DD] [[HH:]MM:]ss[.uuuuuu]"')
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,020 - INFO - === file_to_commands: ===
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE"
+  ],
+  "'django/utils/duration.py'": [
+    "<<<<<<< SEARCH\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)\n=======\n    string = '{:02d}:{:02d}:{:02d}'.format(hours, minutes or 0, seconds)\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,021 - INFO - === edit_commands: ===
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,022 - INFO - 
+----------------------------------------
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - extracted patch:
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:36,026 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,7 +468,7 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
+ 
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - === file_to_commands: ===
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - === edit_commands: ===
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,797 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,798 - INFO - 
+----------------------------------------
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - extracted patch:
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:37,802 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,13 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', _('Enter duration in format [DD] [[HH:]MM:]ss[.uuuuuu].'))
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,584 - INFO - === file_to_commands: ===
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - {
+  "'django/forms/fields.py'": [
+    "<<<<<<< SEARCH\n        'invalid': _('Enter a valid duration.'),\n=======\n        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n    def prepare_value(self, value):\n=======\n    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')\n    \n    def __init__(self, *args, **kwargs):\n        kwargs.setdefault('help_text', self.default_help_text)\n        super().__init__(*args, **kwargs)\n\n    def prepare_value(self, value):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edited_file: 'django/forms/fields.py' ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - === edit_commands: ===
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - <<<<<<< SEARCH
+        'invalid': _('Enter a valid duration.'),
+=======
+        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+>>>>>>> REPLACE
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,585 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - <<<<<<< SEARCH
+    def prepare_value(self, value):
+=======
+    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('help_text', self.default_help_text)
+        super().__init__(*args, **kwargs)
+
+    def prepare_value(self, value):
+>>>>>>> REPLACE
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,586 - INFO - 
+----------------------------------------
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - extracted patch:
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):
+2024-10-18 13:26:39,590 - INFO - --- django/forms/fields.py
++++ django/forms/fields.py
+@@ -468,9 +468,15 @@
+ 
+ class DurationField(Field):
+     default_error_messages = {
+-        'invalid': _('Enter a valid duration.'),
++        'invalid': _('Enter a valid duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].'),
+         'overflow': _('The number of days must be between {min_days} and {max_days}.')
+     }
++
++    default_help_text = _('Enter a duration in the format [DD] [[HH:]MM:]ss[.uuuuuu].')
++    
++    def __init__(self, *args, **kwargs):
++        kwargs.setdefault('help_text', self.default_help_text)
++        super().__init__(*args, **kwargs)
+ 
+     def prepare_value(self, value):
+         if isinstance(value, datetime.timedelta):

@@ -1,0 +1,2766 @@
+2024-10-18 13:23:05,438 - INFO - Processing bug pytest-dev__pytest-5227
+2024-10-18 13:23:11,154 - INFO - ================ localize pytest-dev__pytest-5227 ================
+2024-10-18 13:23:11,197 - INFO - prompting with message:
+Please look through the following GitHub problem description, and Repository structure and provide a list of files that one would need to edit to fix the problem.
+
+### GitHub Problem Description ###
+Improve default logging format
+Currently it is:
+
+> DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+
+I think `name` (module name) would be very useful here, instead of just the base filename.
+
+(It might also be good to have the relative path there (maybe at the end), but it is usually still very long (but e.g. `$VIRTUAL_ENV` could be substituted therein))
+
+Currently it would look like this:
+```
+utils.py                   114 DEBUG    (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+multipart.py               604 DEBUG    Calling on_field_start with no data
+```
+
+
+Using `DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"` instead:
+
+```
+DEBUG    django.db.backends:utils.py:114 (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data
+```
+
+
+###
+
+
+
+### Repository Structure ###
+pytest/
+    setup.py
+src/
+    pytest.py
+    _pytest/
+        outcomes.py
+        monkeypatch.py
+        _argcomplete.py
+        python.py
+        junitxml.py
+        tmpdir.py
+        pytester.py
+        capture.py
+        cacheprovider.py
+        hookspec.py
+        terminal.py
+        freeze_support.py
+        stepwise.py
+        compat.py
+        warning_types.py
+        helpconfig.py
+        nose.py
+        python_api.py
+        unittest.py
+        deprecated.py
+        fixtures.py
+        skipping.py
+        nodes.py
+        main.py
+        setupplan.py
+        recwarn.py
+        debugging.py
+        setuponly.py
+        pastebin.py
+        logging.py
+        resultlog.py
+        warnings.py
+        runner.py
+        reports.py
+        __init__.py
+        doctest.py
+        pathlib.py
+        config/
+            exceptions.py
+            findpaths.py
+            argparsing.py
+            __init__.py
+        mark/
+            evaluate.py
+            legacy.py
+            structures.py
+            __init__.py
+        _io/
+            saferepr.py
+            __init__.py
+        assertion/
+            rewrite.py
+            truncate.py
+            util.py
+            __init__.py
+        _code/
+            code.py
+            source.py
+            _py2traceback.py
+            __init__.py
+bench/
+    manyparam.py
+    bench.py
+    skip.py
+    bench_argcomplete.py
+    empty.py
+extra/
+    get_issues.py
+doc/
+    en/
+        conf.py
+        conftest.py
+        _themes/
+            flask_theme_support.py
+        example/
+            xfail_demo.py
+            conftest.py
+            pythoncollection.py
+            multipython.py
+            assertion/
+                test_failures.py
+                test_setup_flow_example.py
+                failure_demo.py
+                global_testmodule_config/
+                    conftest.py
+                    test_hello_world.py
+            costlysetup/
+                conftest.py
+                sub_a/
+                    test_quick.py
+                    __init__.py
+                sub_b/
+                    test_two.py
+                    __init__.py
+            nonpython/
+                conftest.py
+                __init__.py
+            py2py3/
+                conftest.py
+                test_py2.py
+                test_py3.py
+testing/
+    test_warnings.py
+    test_reports.py
+    test_skipping.py
+    test_cacheprovider.py
+    deprecated_test.py
+    test_helpconfig.py
+    test_argcomplete.py
+    test_capture.py
+    acceptance_test.py
+    test_runner_xunit.py
+    test_modimport.py
+    test_config.py
+    test_runner.py
+    conftest.py
+    test_assertrewrite.py
+    test_collection.py
+    test_monkeypatch.py
+    test_pytester.py
+    test_pastebin.py
+    test_tmpdir.py
+    test_nose.py
+    test_pdb.py
+    test_session.py
+    test_assertion.py
+    test_stepwise.py
+    test_resultlog.py
+    test_entry_points.py
+    test_pluginmanager.py
+    test_parseopt.py
+    test_pathlib.py
+    test_terminal.py
+    test_mark.py
+    test_conftest.py
+    test_recwarn.py
+    test_compat.py
+    test_unittest.py
+    test_nodes.py
+    test_doctest.py
+    test_junitxml.py
+    code/
+        test_code.py
+        test_excinfo.py
+        test_source.py
+    io/
+        test_saferepr.py
+    freeze/
+        runtests_script.py
+        tox_run.py
+        create_executable.py
+        tests/
+            test_trivial.py
+    example_scripts/
+        issue_519.py
+        config/
+            collect_pytest_prefix/
+                conftest.py
+                test_foo.py
+        marks/
+            marks_considered_keywords/
+                conftest.py
+                test_marks_as_keywords.py
+        collect/
+            package_infinite_recursion/
+                conftest.py
+                tests/
+                    test_basic.py
+                    __init__.py
+            package_init_given_as_arg/
+                pkg/
+                    test_foo.py
+                    __init__.py
+            collect_init_tests/
+                tests/
+                    test_foo.py
+                    __init__.py
+        warnings/
+            test_group_warnings_by_message.py
+        deprecated/
+            test_fixture_named_request.py
+        conftest_usageerror/
+            conftest.py
+        unittest/
+            test_setup_skip_module.py
+            test_setup_skip.py
+            test_parametrized_fixture_error_message.py
+            test_setup_skip_class.py
+        tmpdir/
+            tmpdir_fixture.py
+        perf_examples/
+            collect_stats/
+                generate_folders.py
+                template_test.py
+        acceptance/
+            fixture_mock_integration.py
+        dataclasses/
+            test_compare_dataclasses.py
+            test_compare_dataclasses_verbose.py
+            test_compare_two_different_dataclasses.py
+            test_compare_dataclasses_field_comparison_off.py
+        issue88_initial_file_multinodes/
+            conftest.py
+            test_hello.py
+        fixtures/
+            test_getfixturevalue_dynamic.py
+            custom_item/
+                conftest.py
+                foo/
+                    test_foo.py
+                    __init__.py
+            fill_fixtures/
+                test_detect_recursive_dependency_error.py
+                test_funcarg_lookupfails.py
+                test_funcarg_lookup_modulelevel.py
+                test_funcarg_lookup_classlevel.py
+                test_extend_fixture_module_class.py
+                test_funcarg_basic.py
+                test_conftest_funcargs_only_available_in_subdir/
+                    sub2/
+                        conftest.py
+                        test_in_sub2.py
+                        __init__.py
+                    sub1/
+                        conftest.py
+                        test_in_sub1.py
+                        __init__.py
+                test_extend_fixture_conftest_module/
+                    conftest.py
+                    test_extend_fixture_conftest_module.py
+                test_extend_fixture_conftest_conftest/
+                    conftest.py
+                    pkg/
+                        test_spam.py
+                        conftest.py
+                        __init__.py
+    python/
+        integration.py
+        setup_plan.py
+        metafunc.py
+        collect.py
+        fixtures.py
+        setup_only.py
+        raises.py
+        approx.py
+        show_fixtures_per_test.py
+    examples/
+        test_issue519.py
+    logging/
+        test_formatter.py
+        test_reporting.py
+        test_fixture.py
+scripts/
+    release.py
+
+###
+
+Please only provide the full path and return at most 5 files.
+The returned files should be separated by new lines ordered by most to least important and wrapped with ```
+For example:
+```
+file1.py
+file2.py
+```
+2024-10-18 13:23:11,198 - INFO - ================================================================================
+2024-10-18 13:23:11,272 - INFO - Creating API request
+2024-10-18 13:23:12,659 - INFO - API response ChatCompletion(id='chatcmpl-AJnn5qis1PLpCLSYyWLi32P3ffJV1', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\nsrc/_pytest/logging.py\nsrc/_pytest/terminal.py\nsrc/_pytest/config/__init__.py\nsrc/_pytest/main.py\ntesting/test_logging.py\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729282991, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_28a34a3a6a', usage=CompletionUsage(completion_tokens=37, prompt_tokens=1763, total_tokens=1800, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:23:12,662 - INFO - ```
+src/_pytest/logging.py
+src/_pytest/terminal.py
+src/_pytest/config/__init__.py
+src/_pytest/main.py
+testing/test_logging.py
+```
+2024-10-18 13:23:13,963 - INFO - prompting with message:
+
+Please look through the following GitHub Problem Description, and the Skeleton of Relevant Files.
+Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
+For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+
+### GitHub Problem Description ###
+Improve default logging format
+Currently it is:
+
+> DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+
+I think `name` (module name) would be very useful here, instead of just the base filename.
+
+(It might also be good to have the relative path there (maybe at the end), but it is usually still very long (but e.g. `$VIRTUAL_ENV` could be substituted therein))
+
+Currently it would look like this:
+```
+utils.py                   114 DEBUG    (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+multipart.py               604 DEBUG    Calling on_field_start with no data
+```
+
+
+Using `DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"` instead:
+
+```
+DEBUG    django.db.backends:utils.py:114 (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data
+```
+
+
+###
+
+
+
+### Skeleton of Relevant Files ###
+
+### File: src/_pytest/logging.py ###
+```python
+
+DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+
+
+class ColoredLevelFormatter(logging.Formatter):
+
+    LOGLEVEL_COLOROPTS = {
+        logging.CRITICAL: {"red"},
+        logging.ERROR: {"red", "bold"},
+        logging.WARNING: {"yellow"},
+        logging.WARN: {"yellow"},
+        logging.INFO: {"green"},
+        logging.DEBUG: {"purple"},
+        logging.NOTSET: set(),
+    }
+    LEVELNAME_FMT_REGEX = re.compile(r"%\(levelname\)([+-]?\d*s)")
+
+    def __init__(self, terminalwriter, *args, **kwargs):
+...
+    def format(self, record):
+...
+
+def get_option_ini(config, *names):
+...
+
+def pytest_addoption(parser):
+...
+
+@contextmanager
+def catching_logs(handler, formatter=None, level=None):
+...
+
+class LogCaptureHandler(logging.StreamHandler):
+
+    def __init__(self):
+...
+    def emit(self, record):
+...
+    def reset(self):
+...
+
+class LogCaptureFixture(object):
+
+    def __init__(self, item):
+...
+    def _finalize(self):
+...
+    @property
+    def handler(self):
+...
+    def get_records(self, when):
+...
+    @property
+    def text(self):
+...
+    @property
+    def records(self):
+...
+    @property
+    def record_tuples(self):
+...
+    @property
+    def messages(self):
+...
+    def clear(self):
+...
+    def set_level(self, level, logger=None):
+...
+    @contextmanager
+    def at_level(self, level, logger=None):
+...
+
+@pytest.fixture
+def caplog(request):
+...
+
+def get_actual_log_level(config, *setting_names):
+...
+
+# run after terminalreporter/capturemanager are configured
+@pytest.hookimpl(trylast=True)
+def pytest_configure(config):
+...
+
+class LoggingPlugin(object):
+
+    def __init__(self, config):
+...
+    def _setup_cli_logging(self):
+...
+    def set_log_path(self, fname):
+...
+    def _log_cli_enabled(self):
+...
+    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+    def pytest_collection(self):
+...
+    @contextmanager
+    def _runtest_for(self, item, when):
+...
+    @contextmanager
+    def _runtest_for_main(self, item, when):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_setup(self, item):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_call(self, item):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_teardown(self, item):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_logstart(self):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_logfinish(self):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_logreport(self):
+...
+    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+    def pytest_sessionfinish(self):
+...
+    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+    def pytest_sessionstart(self):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtestloop(self, session):
+...
+
+class _LiveLoggingStreamHandler(logging.StreamHandler):
+
+    def __init__(self, terminal_reporter, capture_manager):
+...
+    def reset(self):
+...
+    def set_when(self, when):
+...
+    def emit(self, record):
+
+```
+
+### File: src/_pytest/terminal.py ###
+```python
+
+REPORT_COLLECTING_RESOLUTION = 0.5
+
+
+class MoreQuietAction(argparse.Action):
+
+    def __init__(self, option_strings, dest, default=None, required=False, help=None):
+...
+    def __call__(self, parser, namespace, values, option_string=None):
+...
+
+def pytest_addoption(parser):
+...
+
+def pytest_configure(config):
+...
+
+def getreportopt(config):
+...
+
+@pytest.hookimpl(trylast=True)  # after _pytest.runner
+def pytest_report_teststatus(report):
+...
+
+@attr.s
+class WarningReport(object):
+
+    message = attr.ib()
+    nodeid = attr.ib(default=None)
+    fslocation = attr.ib(default=None)
+    count_towards_summary = True
+
+    def get_location(self, config):
+...
+
+class TerminalReporter(object):
+    def __init__(self, config, file=None):
+...
+    def _determine_show_progress_info(self):
+...
+    @property
+    def verbosity(self):
+...
+    @property
+    def showheader(self):
+...
+    @property
+    def showfspath(self):
+...
+    @showfspath.setter
+    def showfspath(self, value):
+...
+    @property
+    def showlongtestinfo(self):
+...
+    def hasopt(self, char):
+...
+    def write_fspath_result(self, nodeid, res, **markup):
+...
+    def write_ensure_prefix(self, prefix, extra="", **kwargs):
+...
+    def ensure_newline(self):
+...
+    def write(self, content, **markup):
+...
+    def write_line(self, line, **markup):
+...
+    def rewrite(self, line, **markup):
+...
+    def write_sep(self, sep, title=None, **markup):
+...
+    def section(self, title, sep="=", **kw):
+...
+    def line(self, msg, **kw):
+...
+    def pytest_internalerror(self, excrepr):
+...
+    def pytest_warning_captured(self, warning_message, item):
+...
+    def pytest_plugin_registered(self, plugin):
+...
+    def pytest_deselected(self, items):
+...
+    def pytest_runtest_logstart(self, nodeid, location):
+...
+    def pytest_runtest_logreport(self, report):
+...
+    def pytest_runtest_logfinish(self, nodeid):
+...
+    def _get_progress_information_message(self):
+...
+    def _write_progress_information_filling_space(self):
+...
+    @property
+    def _width_of_current_line(self):
+...
+    def pytest_collection(self):
+...
+    def pytest_collectreport(self, report):
+...
+    def report_collect(self, final=False):
+...
+    @pytest.hookimpl(trylast=True)
+    def pytest_sessionstart(self, session):
+...
+    def _write_report_lines_from_hooks(self, lines):
+...
+    def pytest_report_header(self, config):
+...
+    def pytest_collection_finish(self, session):
+...
+    def _printcollecteditems(self, items):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_sessionfinish(self, exitstatus):
+...
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_terminal_summary(self):
+...
+    def pytest_keyboard_interrupt(self, excinfo):
+...
+    def pytest_unconfigure(self):
+...
+    def _report_keyboardinterrupt(self):
+...
+    def _locationline(self, nodeid, fspath, lineno, domain):
+...
+    def _getfailureheadline(self, rep):
+...
+    def _getcrashline(self, rep):
+...
+    #
+    # summaries for sessionfinish
+    #
+    def getreports(self, name):
+...
+    def summary_warnings(self):
+...
+    def summary_passes(self):
+...
+    def print_teardown_sections(self, rep):
+...
+    def summary_failures(self):
+...
+    def summary_errors(self):
+...
+    def _outrep_summary(self, rep):
+...
+    def summary_stats(self):
+...
+    def short_test_summary(self):
+...
+
+def _folded_skips(skipped):
+...
+
+def build_summary_stats_line(stats):
+...
+
+def _plugin_nameversions(plugininfo):
+
+```
+
+### File: src/_pytest/config/__init__.py ###
+```python
+
+hookimpl = HookimplMarker("pytest")
+hookspec = HookspecMarker("pytest")
+
+
+class ConftestImportFailure(Exception):
+    def __init__(self, path, excinfo):
+...
+
+def main(args=None, plugins=None):
+...
+
+class cmdline(object):
+    main = staticmethod(main)
+
+
+def filename_arg(path, optname):
+...
+
+def directory_arg(path, optname):
+...
+
+# Plugins that cannot be disabled via "-p no:X" currently.
+essential_plugins = (
+    "mark",
+    "main",
+    "runner",
+    "python",
+    "fixtures",
+    "helpconfig",  # Provides -p.
+)
+
+default_plugins = essential_plugins + (
+    "terminal",
+    "debugging",
+    "unittest",
+    "capture",
+    "skipping",
+    "tmpdir",
+    "monkeypatch",
+    "recwarn",
+    "pastebin",
+    "nose",
+    "assertion",
+    "junitxml",
+    "resultlog",
+    "doctest",
+    "cacheprovider",
+    "freeze_support",
+    "setuponly",
+    "setupplan",
+    "stepwise",
+    "warnings",
+    "logging",
+    "reports",
+)
+
+builtin_plugins = set(default_plugins)
+
+
+def get_config(args=None):
+...
+
+def get_plugin_manager():
+...
+
+def _prepareconfig(args=None, plugins=None):
+...
+
+class PytestPluginManager(PluginManager):
+
+    def __init__(self):
+...
+    def addhooks(self, module_or_class):
+...
+    def parse_hookimpl_opts(self, plugin, name):
+...
+    def parse_hookspec_opts(self, module_or_class, name):
+...
+    def register(self, plugin, name=None):
+...
+    def getplugin(self, name):
+...
+    def hasplugin(self, name):
+...
+    def pytest_configure(self, config):
+...
+    #
+    # internal API for local conftest plugin handling
+    #
+    def _set_initial_conftests(self, namespace):
+...
+    def _try_load_conftest(self, anchor):
+...
+    @lru_cache(maxsize=128)
+    def _getconftestmodules(self, path):
+...
+    def _rget_with_confmod(self, name, path):
+...
+    def _importconftest(self, conftestpath):
+...
+    #
+    # API for bootstrapping plugin loading
+    #
+    #
+
+    def consider_preparse(self, args):
+...
+    def consider_pluginarg(self, arg):
+...
+    def consider_conftest(self, conftestmodule):
+...
+    def consider_env(self):
+...
+    def consider_module(self, mod):
+...
+    def _import_plugin_specs(self, spec):
+...
+    def import_plugin(self, modname, consider_entry_points=False):
+...
+
+def _get_plugin_specs_as_list(specs):
+...
+
+def _ensure_removed_sysmodule(modname):
+...
+
+class Notset(object):
+    def __repr__(self):
+...
+
+notset = Notset()
+
+
+def _iter_rewritable_modules(package_files):
+...
+
+class Config(object):
+
+    def __init__(self, pluginmanager):
+...
+    def add_cleanup(self, func):
+...
+    def _do_configure(self):
+...
+    def _ensure_unconfigure(self):
+...
+    def get_terminal_writer(self):
+...
+    def pytest_cmdline_parse(self, pluginmanager, args):
+...
+    def notify_exception(self, excinfo, option=None):
+...
+    def cwd_relative_nodeid(self, nodeid):
+...
+    @classmethod
+    def fromdictargs(cls, option_dict, args):
+...
+    def _processopt(self, opt):
+...
+    @hookimpl(trylast=True)
+    def pytest_load_initial_conftests(self, early_config):
+...
+    def _initini(self, args):
+...
+    def _consider_importhook(self, args):
+...
+    def _mark_plugins_for_rewrite(self, hook):
+...
+    def _validate_args(self, args, via):
+...
+    def _preparse(self, args, addopts=True):
+...
+    def _checkversion(self):
+...
+    def parse(self, args, addopts=True):
+...
+    def addinivalue_line(self, name, line):
+...
+    def getini(self, name):
+...
+    def _getini(self, name):
+...
+    def _getconftest_pathlist(self, name, path):
+...
+    def _get_override_ini_value(self, name):
+...
+    def getoption(self, name, default=notset, skip=False):
+...
+    def getvalue(self, name, path=None):
+...
+    def getvalueorskip(self, name, path=None):
+...
+
+def _assertion_supported():
+...
+
+def _warn_about_missing_assertion(mode):
+...
+
+def setns(obj, dic):
+...
+
+def create_terminal_writer(config, *args, **kwargs):
+...
+
+def _strtobool(val):
+
+```
+
+
+###
+
+Please provide the complete set of locations as either a class name, a function name, or a variable name.
+Note that if you include a class, you do not need to list its specific methods.
+You can include either the entire class or don't include the class name and instead include specific methods in the class.
+### Examples:
+```
+full_path1/file1.py
+function: my_function_1
+class: MyClass1
+function: MyClass2.my_method
+
+full_path2/file2.py
+variable: my_var
+function: MyClass3.my_method
+
+full_path3/file3.py
+function: my_function_2
+function: my_function_3
+function: MyClass4.my_method_1
+class: MyClass5
+```
+
+Return just the locations.
+
+2024-10-18 13:23:13,964 - INFO - ================================================================================
+2024-10-18 13:23:14,053 - INFO - Creating API request
+2024-10-18 13:23:15,421 - INFO - API response ChatCompletion(id='chatcmpl-AJnn8Men2ZuGYstFzF0TA97515GDm', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\nsrc/_pytest/logging.py\nvariable: DEFAULT_LOG_FORMAT\nclass: ColoredLevelFormatter\nclass: LogCaptureHandler\nclass: LogCaptureFixture\nclass: LoggingPlugin\nclass: _LiveLoggingStreamHandler\n\nsrc/_pytest/terminal.py\nclass: TerminalReporter\n\nsrc/_pytest/config/__init__.py\nclass: Config\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729282994, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=72, prompt_tokens=3147, total_tokens=3219, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:23:15,421 - INFO - ==== raw output ====
+2024-10-18 13:23:15,421 - INFO - ```
+src/_pytest/logging.py
+variable: DEFAULT_LOG_FORMAT
+class: ColoredLevelFormatter
+class: LogCaptureHandler
+class: LogCaptureFixture
+class: LoggingPlugin
+class: _LiveLoggingStreamHandler
+
+src/_pytest/terminal.py
+class: TerminalReporter
+
+src/_pytest/config/__init__.py
+class: Config
+```
+2024-10-18 13:23:15,421 - INFO - ================================================================================
+2024-10-18 13:23:15,421 - INFO - ==== extracted locs ====
+2024-10-18 13:23:15,421 - INFO - ['variable: DEFAULT_LOG_FORMAT\nclass: ColoredLevelFormatter\nclass: LogCaptureHandler\nclass: LogCaptureFixture\nclass: LoggingPlugin\nclass: _LiveLoggingStreamHandler']
+2024-10-18 13:23:15,422 - INFO - ['class: TerminalReporter']
+2024-10-18 13:23:15,422 - INFO - ['class: Config']
+2024-10-18 13:23:15,422 - INFO - ================================================================================
+2024-10-18 13:23:18,327 - INFO - prompting with message:
+
+Please review the following GitHub problem description, and relevant files, and provide a set of locations that need to be edited to fix the issue.
+The locations can be specified as class names, function or method names, or exact line numbers that require modification.
+
+### GitHub Problem Description ###
+Improve default logging format
+Currently it is:
+
+> DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+
+I think `name` (module name) would be very useful here, instead of just the base filename.
+
+(It might also be good to have the relative path there (maybe at the end), but it is usually still very long (but e.g. `$VIRTUAL_ENV` could be substituted therein))
+
+Currently it would look like this:
+```
+utils.py                   114 DEBUG    (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+multipart.py               604 DEBUG    Calling on_field_start with no data
+```
+
+
+Using `DEFAULT_LOG_FORMAT = "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"` instead:
+
+```
+DEBUG    django.db.backends:utils.py:114 (0.000) SELECT "app_url"."id", "app_url"."created", "app_url"."url" FROM "app_url" WHERE "app_url"."id" = 2; args=(2,)
+DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data
+```
+
+
+###
+
+
+
+### src/_pytest/logging.py
+...
+8|from contextlib import contextmanager
+9|
+10|import py
+11|import six
+12|
+13|import pytest
+14|from _pytest.compat import dummy_context_manager
+15|from _pytest.config import create_terminal_writer
+16|from _pytest.pathlib import Path
+17|
+18|DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"
+19|DEFAULT_LOG_DATE_FORMAT = "%H:%M:%S"
+20|
+21|
+22|class ColoredLevelFormatter(logging.Formatter):
+23|    """
+24|    Colorize the %(levelname)..s part of the log format passed to __init__.
+25|    """
+26|
+27|    LOGLEVEL_COLOROPTS = {
+28|        logging.CRITICAL: {"red"},
+29|        logging.ERROR: {"red", "bold"},
+30|        logging.WARNING: {"yellow"},
+31|        logging.WARN: {"yellow"},
+32|        logging.INFO: {"green"},
+33|        logging.DEBUG: {"purple"},
+34|        logging.NOTSET: set(),
+35|    }
+36|    LEVELNAME_FMT_REGEX = re.compile(r"%\(levelname\)([+-]?\d*s)")
+37|
+38|    def __init__(self, terminalwriter, *args, **kwargs):
+39|        super(ColoredLevelFormatter, self).__init__(*args, **kwargs)
+40|        if six.PY2:
+41|            self._original_fmt = self._fmt
+42|        else:
+43|            self._original_fmt = self._style._fmt
+44|        self._level_to_fmt_mapping = {}
+45|
+46|        levelname_fmt_match = self.LEVELNAME_FMT_REGEX.search(self._fmt)
+47|        if not levelname_fmt_match:
+48|            return
+49|        levelname_fmt = levelname_fmt_match.group()
+50|
+51|        for level, color_opts in self.LOGLEVEL_COLOROPTS.items():
+52|            formatted_levelname = levelname_fmt % {
+53|                "levelname": logging.getLevelName(level)
+54|            }
+55|
+56|            # add ANSI escape sequences around the formatted levelname
+57|            color_kwargs = {name: True for name in color_opts}
+58|            colorized_formatted_levelname = terminalwriter.markup(
+59|                formatted_levelname, **color_kwargs
+60|            )
+61|            self._level_to_fmt_mapping[level] = self.LEVELNAME_FMT_REGEX.sub(
+62|                colorized_formatted_levelname, self._fmt
+63|            )
+64|
+65|    def format(self, record):
+66|        fmt = self._level_to_fmt_mapping.get(record.levelno, self._original_fmt)
+67|        if six.PY2:
+68|            self._fmt = fmt
+69|        else:
+70|            self._style._fmt = fmt
+71|        return super(ColoredLevelFormatter, self).format(record)
+72|
+73|
+74|def get_option_ini(config, *names):
+75|    for name in names:
+76|        ret = config.getoption(name)  # 'default' arg won't work as expected
+77|        if ret is None:
+78|            ret = config.getini(name)
+79|        if ret:
+80|            return ret
+81|
+...
+185|        root_logger.setLevel(min(orig_level, level))
+186|    try:
+187|        yield handler
+188|    finally:
+189|        if level is not None:
+190|            root_logger.setLevel(orig_level)
+191|        if add_new_handler:
+192|            root_logger.removeHandler(handler)
+193|
+194|
+195|class LogCaptureHandler(logging.StreamHandler):
+196|    """A logging handler that stores log records and the log text."""
+197|
+198|    def __init__(self):
+199|        """Creates a new log handler."""
+200|        logging.StreamHandler.__init__(self, py.io.TextIO())
+201|        self.records = []
+202|
+203|    def emit(self, record):
+204|        """Keep the log records in a list in addition to the log text."""
+205|        self.records.append(record)
+206|        logging.StreamHandler.emit(self, record)
+207|
+208|    def reset(self):
+209|        self.records = []
+210|        self.stream = py.io.TextIO()
+211|
+212|
+213|class LogCaptureFixture(object):
+214|    """Provides access and control of log capturing."""
+215|
+216|    def __init__(self, item):
+217|        """Creates a new funcarg."""
+218|        self._item = item
+219|        # dict of log name -> log level
+220|        self._initial_log_levels = {}  # Dict[str, int]
+221|
+222|    def _finalize(self):
+223|        """Finalizes the fixture.
+224|
+225|        This restores the log levels changed by :meth:`set_level`.
+226|        """
+227|        # restore log levels
+228|        for logger_name, level in self._initial_log_levels.items():
+229|            logger = logging.getLogger(logger_name)
+230|            logger.setLevel(level)
+231|
+232|    @property
+233|    def handler(self):
+234|        """
+235|        :rtype: LogCaptureHandler
+236|        """
+237|        return self._item.catch_log_handler
+238|
+239|    def get_records(self, when):
+240|        """
+241|        Get the logging records for one of the possible test phases.
+242|
+243|        :param str when:
+244|            Which test phase to obtain the records from. Valid values are: "setup", "call" and "teardown".
+245|
+246|        :rtype: List[logging.LogRecord]
+247|        :return: the list of captured records at the given stage
+248|
+249|        .. versionadded:: 3.4
+250|        """
+251|        handler = self._item.catch_log_handlers.get(when)
+252|        if handler:
+253|            return handler.records
+254|        else:
+255|            return []
+256|
+257|    @property
+258|    def text(self):
+259|        """Returns the log text."""
+260|        return self.handler.stream.getvalue()
+261|
+262|    @property
+263|    def records(self):
+264|        """Returns the list of log records."""
+265|        return self.handler.records
+266|
+267|    @property
+268|    def record_tuples(self):
+269|        """Returns a list of a stripped down version of log records intended
+270|        for use in assertion comparison.
+271|
+272|        The format of the tuple is:
+273|
+274|            (logger_name, log_level, message)
+275|        """
+276|        return [(r.name, r.levelno, r.getMessage()) for r in self.records]
+277|
+278|    @property
+279|    def messages(self):
+280|        """Returns a list of format-interpolated log messages.
+281|
+282|        Unlike 'records', which contains the format string and parameters for interpolation, log messages in this list
+283|        are all interpolated.
+284|        Unlike 'text', which contains the output from the handler, log messages in this list are unadorned with
+285|        levels, timestamps, etc, making exact comparisons more reliable.
+286|
+287|        Note that traceback or stack info (from :func:`logging.exception` or the `exc_info` or `stack_info` arguments
+288|        to the logging functions) is not included, as this is added by the formatter in the handler.
+289|
+290|        .. versionadded:: 3.7
+291|        """
+292|        return [r.getMessage() for r in self.records]
+293|
+294|    def clear(self):
+295|        """Reset the list of log records and the captured log text."""
+296|        self.handler.reset()
+297|
+298|    def set_level(self, level, logger=None):
+299|        """Sets the level for capturing of logs. The level will be restored to its previous value at the end of
+300|        the test.
+301|
+302|        :param int level: the logger to level.
+303|        :param str logger: the logger to update the level. If not given, the root logger level is updated.
+304|
+305|        .. versionchanged:: 3.4
+306|            The levels of the loggers changed by this function will be restored to their initial values at the
+307|            end of the test.
+308|        """
+309|        logger_name = logger
+310|        logger = logging.getLogger(logger_name)
+311|        # save the original log-level to restore it during teardown
+312|        self._initial_log_levels.setdefault(logger_name, logger.level)
+313|        logger.setLevel(level)
+314|
+315|    @contextmanager
+316|    def at_level(self, level, logger=None):
+317|        """Context manager that sets the level for capturing of logs. After the end of the 'with' statement the
+318|        level is restored to its original value.
+319|
+320|        :param int level: the logger to level.
+321|        :param str logger: the logger to update the level. If not given, the root logger level is updated.
+322|        """
+323|        logger = logging.getLogger(logger)
+324|        orig_level = logger.level
+325|        logger.setLevel(level)
+326|        try:
+327|            yield
+328|        finally:
+329|            logger.setLevel(orig_level)
+330|
+331|
+332|@pytest.fixture
+333|def caplog(request):
+334|    """Access and control log capturing.
+335|
+336|    Captured logs are available through the following properties/methods::
+337|
+338|    * caplog.text            -> string containing formatted log output
+339|    * caplog.records         -> list of logging.LogRecord instances
+...
+369|            "logging level num instead.".format(log_level, setting_name)
+370|        )
+371|
+372|
+373|# run after terminalreporter/capturemanager are configured
+374|@pytest.hookimpl(trylast=True)
+375|def pytest_configure(config):
+376|    config.pluginmanager.register(LoggingPlugin(config), "logging-plugin")
+377|
+378|
+379|class LoggingPlugin(object):
+380|    """Attaches to the logging module and captures log messages for each test.
+381|    """
+382|
+383|    def __init__(self, config):
+384|        """Creates a new plugin to capture log messages.
+385|
+386|        The formatter can be safely shared across all handlers so
+387|        create a single one for the entire test session here.
+388|        """
+389|        self._config = config
+390|
+391|        # enable verbose output automatically if live logging is enabled
+392|        if self._log_cli_enabled() and config.getoption("verbose") < 1:
+393|            config.option.verbose = 1
+394|
+395|        self.print_logs = get_option_ini(config, "log_print")
+396|        self.formatter = logging.Formatter(
+397|            get_option_ini(config, "log_format"),
+398|            get_option_ini(config, "log_date_format"),
+399|        )
+400|        self.log_level = get_actual_log_level(config, "log_level")
+401|
+402|        self.log_file_level = get_actual_log_level(config, "log_file_level")
+403|        self.log_file_format = get_option_ini(config, "log_file_format", "log_format")
+404|        self.log_file_date_format = get_option_ini(
+405|            config, "log_file_date_format", "log_date_format"
+406|        )
+407|        self.log_file_formatter = logging.Formatter(
+408|            self.log_file_format, datefmt=self.log_file_date_format
+409|        )
+410|
+411|        log_file = get_option_ini(config, "log_file")
+412|        if log_file:
+413|            self.log_file_handler = logging.FileHandler(
+414|                log_file, mode="w", encoding="UTF-8"
+415|            )
+416|            self.log_file_handler.setFormatter(self.log_file_formatter)
+417|        else:
+418|            self.log_file_handler = None
+419|
+420|        self.log_cli_handler = None
+421|
+422|        self.live_logs_context = lambda: dummy_context_manager()
+423|        # Note that the lambda for the live_logs_context is needed because
+424|        # live_logs_context can otherwise not be entered multiple times due
+425|        # to limitations of contextlib.contextmanager.
+426|
+427|        if self._log_cli_enabled():
+428|            self._setup_cli_logging()
+429|
+430|    def _setup_cli_logging(self):
+431|        config = self._config
+432|        terminal_reporter = config.pluginmanager.get_plugin("terminalreporter")
+433|        if terminal_reporter is None:
+434|            # terminal reporter is disabled e.g. by pytest-xdist.
+435|            return
+436|
+437|        capture_manager = config.pluginmanager.get_plugin("capturemanager")
+438|        # if capturemanager plugin is disabled, live logging still works.
+439|        log_cli_handler = _LiveLoggingStreamHandler(terminal_reporter, capture_manager)
+440|        log_cli_format = get_option_ini(config, "log_cli_format", "log_format")
+441|        log_cli_date_format = get_option_ini(
+442|            config, "log_cli_date_format", "log_date_format"
+443|        )
+444|        if (
+445|            config.option.color != "no"
+446|            and ColoredLevelFormatter.LEVELNAME_FMT_REGEX.search(log_cli_format)
+447|        ):
+448|            log_cli_formatter = ColoredLevelFormatter(
+449|                create_terminal_writer(config),
+450|                log_cli_format,
+451|                datefmt=log_cli_date_format,
+452|            )
+453|        else:
+454|            log_cli_formatter = logging.Formatter(
+455|                log_cli_format, datefmt=log_cli_date_format
+456|            )
+457|        log_cli_level = get_actual_log_level(config, "log_cli_level", "log_level")
+458|        self.log_cli_handler = log_cli_handler
+459|        self.live_logs_context = lambda: catching_logs(
+460|            log_cli_handler, formatter=log_cli_formatter, level=log_cli_level
+461|        )
+462|
+463|    def set_log_path(self, fname):
+464|        """Public method, which can set filename parameter for
+465|        Logging.FileHandler(). Also creates parent directory if
+466|        it does not exist.
+467|
+468|        .. warning::
+469|            Please considered as an experimental API.
+470|        """
+471|        fname = Path(fname)
+472|
+473|        if not fname.is_absolute():
+474|            fname = Path(self._config.rootdir, fname)
+475|
+476|        if not fname.parent.exists():
+477|            fname.parent.mkdir(exist_ok=True, parents=True)
+478|
+479|        self.log_file_handler = logging.FileHandler(
+480|            str(fname), mode="w", encoding="UTF-8"
+481|        )
+482|        self.log_file_handler.setFormatter(self.log_file_formatter)
+483|
+484|    def _log_cli_enabled(self):
+485|        """Return True if log_cli should be considered enabled, either explicitly
+486|        or because --log-cli-level was given in the command-line.
+487|        """
+488|        return self._config.getoption(
+489|            "--log-cli-level"
+490|        ) is not None or self._config.getini("log_cli")
+491|
+492|    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+493|    def pytest_collection(self):
+494|        with self.live_logs_context():
+495|            if self.log_cli_handler:
+496|                self.log_cli_handler.set_when("collection")
+497|
+498|            if self.log_file_handler is not None:
+499|                with catching_logs(self.log_file_handler, level=self.log_file_level):
+500|                    yield
+501|            else:
+502|                yield
+503|
+504|    @contextmanager
+505|    def _runtest_for(self, item, when):
+506|        with self._runtest_for_main(item, when):
+507|            if self.log_file_handler is not None:
+508|                with catching_logs(self.log_file_handler, level=self.log_file_level):
+509|                    yield
+510|            else:
+511|                yield
+512|
+513|    @contextmanager
+514|    def _runtest_for_main(self, item, when):
+515|        """Implements the internals of pytest_runtest_xxx() hook."""
+516|        with catching_logs(
+517|            LogCaptureHandler(), formatter=self.formatter, level=self.log_level
+518|        ) as log_handler:
+519|            if self.log_cli_handler:
+520|                self.log_cli_handler.set_when(when)
+521|
+522|            if item is None:
+523|                yield  # run the test
+524|                return
+525|
+526|            if not hasattr(item, "catch_log_handlers"):
+527|                item.catch_log_handlers = {}
+528|            item.catch_log_handlers[when] = log_handler
+529|            item.catch_log_handler = log_handler
+530|            try:
+531|                yield  # run test
+532|            finally:
+533|                if when == "teardown":
+534|                    del item.catch_log_handler
+535|                    del item.catch_log_handlers
+536|
+537|            if self.print_logs:
+538|                # Add a captured log section to the report.
+539|                log = log_handler.stream.getvalue().strip()
+540|                item.add_report_section(when, "log", log)
+541|
+542|    @pytest.hookimpl(hookwrapper=True)
+543|    def pytest_runtest_setup(self, item):
+544|        with self._runtest_for(item, "setup"):
+545|            yield
+546|
+547|    @pytest.hookimpl(hookwrapper=True)
+548|    def pytest_runtest_call(self, item):
+549|        with self._runtest_for(item, "call"):
+550|            yield
+551|
+552|    @pytest.hookimpl(hookwrapper=True)
+553|    def pytest_runtest_teardown(self, item):
+554|        with self._runtest_for(item, "teardown"):
+555|            yield
+556|
+557|    @pytest.hookimpl(hookwrapper=True)
+558|    def pytest_runtest_logstart(self):
+559|        if self.log_cli_handler:
+560|            self.log_cli_handler.reset()
+561|        with self._runtest_for(None, "start"):
+562|            yield
+563|
+564|    @pytest.hookimpl(hookwrapper=True)
+565|    def pytest_runtest_logfinish(self):
+566|        with self._runtest_for(None, "finish"):
+567|            yield
+568|
+569|    @pytest.hookimpl(hookwrapper=True)
+570|    def pytest_runtest_logreport(self):
+571|        with self._runtest_for(None, "logreport"):
+572|            yield
+573|
+574|    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+575|    def pytest_sessionfinish(self):
+576|        with self.live_logs_context():
+577|            if self.log_cli_handler:
+578|                self.log_cli_handler.set_when("sessionfinish")
+579|            if self.log_file_handler is not None:
+580|                try:
+581|                    with catching_logs(
+582|                        self.log_file_handler, level=self.log_file_level
+583|                    ):
+584|                        yield
+585|                finally:
+586|                    # Close the FileHandler explicitly.
+587|                    # (logging.shutdown might have lost the weakref?!)
+588|                    self.log_file_handler.close()
+589|            else:
+590|                yield
+591|
+592|    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
+593|    def pytest_sessionstart(self):
+594|        with self.live_logs_context():
+595|            if self.log_cli_handler:
+596|                self.log_cli_handler.set_when("sessionstart")
+597|            if self.log_file_handler is not None:
+598|                with catching_logs(self.log_file_handler, level=self.log_file_level):
+599|                    yield
+600|            else:
+601|                yield
+602|
+603|    @pytest.hookimpl(hookwrapper=True)
+604|    def pytest_runtestloop(self, session):
+605|        """Runs all collected test items."""
+606|        with self.live_logs_context():
+607|            if self.log_file_handler is not None:
+608|                with catching_logs(self.log_file_handler, level=self.log_file_level):
+609|                    yield  # run all the tests
+610|            else:
+611|                yield  # run all the tests
+612|
+613|
+614|class _LiveLoggingStreamHandler(logging.StreamHandler):
+615|    """
+616|    Custom StreamHandler used by the live logging feature: it will write a newline before the first log message
+617|    in each test.
+618|
+619|    During live logging we must also explicitly disable stdout/stderr capturing otherwise it will get captured
+620|    and won't appear in the terminal.
+621|    """
+622|
+623|    def __init__(self, terminal_reporter, capture_manager):
+624|        """
+625|        :param _pytest.terminal.TerminalReporter terminal_reporter:
+626|        :param _pytest.capture.CaptureManager capture_manager:
+627|        """
+628|        logging.StreamHandler.__init__(self, stream=terminal_reporter)
+629|        self.capture_manager = capture_manager
+630|        self.reset()
+631|        self.set_when(None)
+632|        self._test_outcome_written = False
+633|
+634|    def reset(self):
+635|        """Reset the handler; should be called before the start of each test"""
+636|        self._first_record_emitted = False
+637|
+638|    def set_when(self, when):
+639|        """Prepares for the given test phase (setup/call/teardown)"""
+640|        self._when = when
+641|        self._section_name_shown = False
+642|        if when == "start":
+643|            self._test_outcome_written = False
+644|
+645|    def emit(self, record):
+646|        ctx_manager = (
+647|            self.capture_manager.global_and_fixture_disabled()
+648|            if self.capture_manager
+649|            else dummy_context_manager()
+650|        )
+651|        with ctx_manager:
+652|            if not self._first_record_emitted:
+653|                self.stream.write("\n")
+654|                self._first_record_emitted = True
+655|            elif self._when in ("teardown", "finish"):
+656|                if not self._test_outcome_written:
+657|                    self._test_outcome_written = True
+658|                    self.stream.write("\n")
+659|            if not self._section_name_shown and self._when:
+660|                self.stream.section("live log " + self._when, sep="-", bold=True)
+661|                self._section_name_shown = True
+662|            logging.StreamHandler.emit(self, record)
+
+
+### src/_pytest/terminal.py
+...
+217|                filename, linenum = self.fslocation[:2]
+218|                relpath = py.path.local(filename).relto(config.invocation_dir)
+219|                if not relpath:
+220|                    relpath = str(filename)
+221|                return "%s:%s" % (relpath, linenum)
+222|            else:
+223|                return str(self.fslocation)
+224|        return None
+225|
+226|
+227|class TerminalReporter(object):
+228|    def __init__(self, config, file=None):
+229|        import _pytest.config
+230|
+231|        self.config = config
+232|        self._numcollected = 0
+233|        self._session = None
+234|        self._showfspath = None
+235|
+236|        self.stats = {}
+237|        self.startdir = config.invocation_dir
+238|        if file is None:
+239|            file = sys.stdout
+240|        self._tw = _pytest.config.create_terminal_writer(config, file)
+241|        # self.writer will be deprecated in pytest-3.4
+242|        self.writer = self._tw
+243|        self._screen_width = self._tw.fullwidth
+244|        self.currentfspath = None
+245|        self.reportchars = getreportopt(config)
+246|        self.hasmarkup = self._tw.hasmarkup
+247|        self.isatty = file.isatty()
+248|        self._progress_nodeids_reported = set()
+249|        self._show_progress_info = self._determine_show_progress_info()
+250|        self._collect_report_last_write = None
+251|
+252|    def _determine_show_progress_info(self):
+253|        """Return True if we should display progress information based on the current config"""
+254|        # do not show progress if we are not capturing output (#3038)
+255|        if self.config.getoption("capture", "no") == "no":
+256|            return False
+257|        # do not show progress if we are showing fixture setup/teardown
+258|        if self.config.getoption("setupshow", False):
+259|            return False
+260|        cfg = self.config.getini("console_output_style")
+261|        if cfg in ("progress", "count"):
+262|            return cfg
+263|        return False
+264|
+265|    @property
+266|    def verbosity(self):
+267|        return self.config.option.verbose
+268|
+269|    @property
+270|    def showheader(self):
+271|        return self.verbosity >= 0
+272|
+273|    @property
+274|    def showfspath(self):
+275|        if self._showfspath is None:
+276|            return self.verbosity >= 0
+277|        return self._showfspath
+278|
+279|    @showfspath.setter
+280|    def showfspath(self, value):
+281|        self._showfspath = value
+282|
+283|    @property
+284|    def showlongtestinfo(self):
+285|        return self.verbosity > 0
+286|
+287|    def hasopt(self, char):
+288|        char = {"xfailed": "x", "skipped": "s"}.get(char, char)
+289|        return char in self.reportchars
+290|
+291|    def write_fspath_result(self, nodeid, res, **markup):
+292|        fspath = self.config.rootdir.join(nodeid.split("::")[0])
+293|        # NOTE: explicitly check for None to work around py bug, and for less
+294|        # overhead in general (https://github.com/pytest-dev/py/pull/207).
+295|        if self.currentfspath is None or fspath != self.currentfspath:
+296|            if self.currentfspath is not None and self._show_progress_info:
+297|                self._write_progress_information_filling_space()
+298|            self.currentfspath = fspath
+299|            fspath = self.startdir.bestrelpath(fspath)
+300|            self._tw.line()
+301|            self._tw.write(fspath + " ")
+302|        self._tw.write(res, **markup)
+303|
+304|    def write_ensure_prefix(self, prefix, extra="", **kwargs):
+305|        if self.currentfspath != prefix:
+306|            self._tw.line()
+307|            self.currentfspath = prefix
+308|            self._tw.write(prefix)
+309|        if extra:
+310|            self._tw.write(extra, **kwargs)
+311|            self.currentfspath = -2
+312|
+313|    def ensure_newline(self):
+314|        if self.currentfspath:
+315|            self._tw.line()
+316|            self.currentfspath = None
+317|
+318|    def write(self, content, **markup):
+319|        self._tw.write(content, **markup)
+320|
+321|    def write_line(self, line, **markup):
+322|        if not isinstance(line, six.text_type):
+323|            line = six.text_type(line, errors="replace")
+324|        self.ensure_newline()
+325|        self._tw.line(line, **markup)
+326|
+327|    def rewrite(self, line, **markup):
+328|        """
+329|        Rewinds the terminal cursor to the beginning and writes the given line.
+330|
+331|        :kwarg erase: if True, will also add spaces until the full terminal width to ensure
+332|            previous lines are properly erased.
+333|
+334|        The rest of the keyword arguments are markup instructions.
+335|        """
+336|        erase = markup.pop("erase", False)
+337|        if erase:
+338|            fill_count = self._tw.fullwidth - len(line) - 1
+339|            fill = " " * fill_count
+340|        else:
+341|            fill = ""
+342|        line = str(line)
+343|        self._tw.write("\r" + line + fill, **markup)
+344|
+345|    def write_sep(self, sep, title=None, **markup):
+346|        self.ensure_newline()
+347|        self._tw.sep(sep, title, **markup)
+348|
+349|    def section(self, title, sep="=", **kw):
+350|        self._tw.sep(sep, title, **kw)
+351|
+352|    def line(self, msg, **kw):
+353|        self._tw.line(msg, **kw)
+354|
+355|    def pytest_internalerror(self, excrepr):
+356|        for line in six.text_type(excrepr).split("\n"):
+357|            self.write_line("INTERNALERROR> " + line)
+358|        return 1
+359|
+360|    def pytest_warning_captured(self, warning_message, item):
+361|        # from _pytest.nodes import get_fslocation_from_item
+362|        from _pytest.warnings import warning_record_to_str
+363|
+364|        warnings = self.stats.setdefault("warnings", [])
+365|        fslocation = warning_message.filename, warning_message.lineno
+366|        message = warning_record_to_str(warning_message)
+367|
+368|        nodeid = item.nodeid if item is not None else ""
+369|        warning_report = WarningReport(
+370|            fslocation=fslocation, message=message, nodeid=nodeid
+371|        )
+372|        warnings.append(warning_report)
+373|
+374|    def pytest_plugin_registered(self, plugin):
+375|        if self.config.option.traceconfig:
+376|            msg = "PLUGIN registered: %s" % (plugin,)
+377|            # XXX this event may happen during setup/teardown time
+378|            #     which unfortunately captures our output here
+379|            #     which garbles our output if we use self.write_line
+380|            self.write_line(msg)
+381|
+382|    def pytest_deselected(self, items):
+383|        self.stats.setdefault("deselected", []).extend(items)
+384|
+385|    def pytest_runtest_logstart(self, nodeid, location):
+386|        # ensure that the path is printed before the
+387|        # 1st test of a module starts running
+388|        if self.showlongtestinfo:
+389|            line = self._locationline(nodeid, *location)
+390|            self.write_ensure_prefix(line, "")
+391|        elif self.showfspath:
+392|            fsid = nodeid.split("::")[0]
+393|            self.write_fspath_result(fsid, "")
+394|
+395|    def pytest_runtest_logreport(self, report):
+396|        self._tests_ran = True
+397|        rep = report
+398|        res = self.config.hook.pytest_report_teststatus(report=rep, config=self.config)
+399|        category, letter, word = res
+400|        if isinstance(word, tuple):
+401|            word, markup = word
+402|        else:
+403|            markup = None
+404|        self.stats.setdefault(category, []).append(rep)
+405|        if not letter and not word:
+406|            # probably passed setup/teardown
+407|            return
+408|        running_xdist = hasattr(rep, "node")
+409|        if markup is None:
+410|            was_xfail = hasattr(report, "wasxfail")
+411|            if rep.passed and not was_xfail:
+412|                markup = {"green": True}
+413|            elif rep.passed and was_xfail:
+414|                markup = {"yellow": True}
+415|            elif rep.failed:
+416|                markup = {"red": True}
+417|            elif rep.skipped:
+418|                markup = {"yellow": True}
+419|            else:
+420|                markup = {}
+421|        if self.verbosity <= 0:
+422|            if not running_xdist and self.showfspath:
+423|                self.write_fspath_result(rep.nodeid, letter, **markup)
+424|            else:
+425|                self._tw.write(letter, **markup)
+426|        else:
+427|            self._progress_nodeids_reported.add(rep.nodeid)
+428|            line = self._locationline(rep.nodeid, *rep.location)
+429|            if not running_xdist:
+430|                self.write_ensure_prefix(line, word, **markup)
+431|                if self._show_progress_info:
+432|                    self._write_progress_information_filling_space()
+433|            else:
+434|                self.ensure_newline()
+435|                self._tw.write("[%s]" % rep.node.gateway.id)
+436|                if self._show_progress_info:
+437|                    self._tw.write(
+438|                        self._get_progress_information_message() + " ", cyan=True
+439|                    )
+440|                else:
+441|                    self._tw.write(" ")
+442|                self._tw.write(word, **markup)
+443|                self._tw.write(" " + line)
+444|                self.currentfspath = -2
+445|
+446|    def pytest_runtest_logfinish(self, nodeid):
+447|        if self.verbosity <= 0 and self._show_progress_info:
+448|            if self._show_progress_info == "count":
+449|                num_tests = self._session.testscollected
+450|                progress_length = len(" [{}/{}]".format(str(num_tests), str(num_tests)))
+451|            else:
+452|                progress_length = len(" [100%]")
+453|
+454|            self._progress_nodeids_reported.add(nodeid)
+455|            is_last_item = (
+456|                len(self._progress_nodeids_reported) == self._session.testscollected
+457|            )
+458|            if is_last_item:
+459|                self._write_progress_information_filling_space()
+460|            else:
+461|                w = self._width_of_current_line
+462|                past_edge = w + progress_length + 1 >= self._screen_width
+463|                if past_edge:
+464|                    msg = self._get_progress_information_message()
+465|                    self._tw.write(msg + "\n", cyan=True)
+466|
+467|    def _get_progress_information_message(self):
+468|        collected = self._session.testscollected
+469|        if self._show_progress_info == "count":
+470|            if collected:
+471|                progress = self._progress_nodeids_reported
+472|                counter_format = "{{:{}d}}".format(len(str(collected)))
+473|                format_string = " [{}/{{}}]".format(counter_format)
+474|                return format_string.format(len(progress), collected)
+475|            return " [ {} / {} ]".format(collected, collected)
+476|        else:
+477|            if collected:
+478|                progress = len(self._progress_nodeids_reported) * 100 // collected
+479|                return " [{:3d}%]".format(progress)
+480|            return " [100%]"
+481|
+482|    def _write_progress_information_filling_space(self):
+483|        msg = self._get_progress_information_message()
+484|        w = self._width_of_current_line
+485|        fill = self._tw.fullwidth - w - 1
+486|        self.write(msg.rjust(fill), cyan=True)
+487|
+488|    @property
+489|    def _width_of_current_line(self):
+490|        """Return the width of current line, using the superior implementation of py-1.6 when available"""
+491|        try:
+492|            return self._tw.width_of_current_line
+493|        except AttributeError:
+494|            # py < 1.6.0
+495|            return self._tw.chars_on_current_line
+496|
+497|    def pytest_collection(self):
+498|        if self.isatty:
+499|            if self.config.option.verbose >= 0:
+500|                self.write("collecting ... ", bold=True)
+501|                self._collect_report_last_write = time.time()
+502|        elif self.config.option.verbose >= 1:
+503|            self.write("collecting ... ", bold=True)
+504|
+505|    def pytest_collectreport(self, report):
+506|        if report.failed:
+507|            self.stats.setdefault("error", []).append(report)
+508|        elif report.skipped:
+509|            self.stats.setdefault("skipped", []).append(report)
+510|        items = [x for x in report.result if isinstance(x, pytest.Item)]
+511|        self._numcollected += len(items)
+512|        if self.isatty:
+513|            self.report_collect()
+514|
+515|    def report_collect(self, final=False):
+516|        if self.config.option.verbose < 0:
+517|            return
+518|
+519|        if not final:
+520|            # Only write "collecting" report every 0.5s.
+521|            t = time.time()
+522|            if (
+523|                self._collect_report_last_write is not None
+524|                and self._collect_report_last_write > t - REPORT_COLLECTING_RESOLUTION
+525|            ):
+526|                return
+527|            self._collect_report_last_write = t
+528|
+529|        errors = len(self.stats.get("error", []))
+530|        skipped = len(self.stats.get("skipped", []))
+531|        deselected = len(self.stats.get("deselected", []))
+532|        selected = self._numcollected - errors - skipped - deselected
+533|        if final:
+534|            line = "collected "
+535|        else:
+536|            line = "collecting "
+537|        line += (
+538|            str(self._numcollected) + " item" + ("" if self._numcollected == 1 else "s")
+539|        )
+540|        if errors:
+541|            line += " / %d errors" % errors
+542|        if deselected:
+543|            line += " / %d deselected" % deselected
+544|        if skipped:
+545|            line += " / %d skipped" % skipped
+546|        if self._numcollected > selected > 0:
+547|            line += " / %d selected" % selected
+548|        if self.isatty:
+549|            self.rewrite(line, bold=True, erase=True)
+550|            if final:
+551|                self.write("\n")
+552|        else:
+553|            self.write_line(line)
+554|
+555|    @pytest.hookimpl(trylast=True)
+556|    def pytest_sessionstart(self, session):
+557|        self._session = session
+558|        self._sessionstarttime = time.time()
+559|        if not self.showheader:
+560|            return
+561|        self.write_sep("=", "test session starts", bold=True)
+562|        verinfo = platform.python_version()
+563|        msg = "platform %s -- Python %s" % (sys.platform, verinfo)
+564|        if hasattr(sys, "pypy_version_info"):
+565|            verinfo = ".".join(map(str, sys.pypy_version_info[:3]))
+566|            msg += "[pypy-%s-%s]" % (verinfo, sys.pypy_version_info[3])
+567|        msg += ", pytest-%s, py-%s, pluggy-%s" % (
+568|            pytest.__version__,
+569|            py.__version__,
+570|            pluggy.__version__,
+571|        )
+572|        if (
+573|            self.verbosity > 0
+574|            or self.config.option.debug
+575|            or getattr(self.config.option, "pastebin", None)
+576|        ):
+577|            msg += " -- " + str(sys.executable)
+578|        self.write_line(msg)
+579|        lines = self.config.hook.pytest_report_header(
+580|            config=self.config, startdir=self.startdir
+581|        )
+582|        self._write_report_lines_from_hooks(lines)
+583|
+584|    def _write_report_lines_from_hooks(self, lines):
+585|        lines.reverse()
+586|        for line in collapse(lines):
+587|            self.write_line(line)
+588|
+589|    def pytest_report_header(self, config):
+590|        line = "rootdir: %s" % config.rootdir
+591|
+592|        if config.inifile:
+593|            line += ", inifile: " + config.rootdir.bestrelpath(config.inifile)
+594|
+595|        testpaths = config.getini("testpaths")
+596|        if testpaths and config.args == testpaths:
+597|            rel_paths = [config.rootdir.bestrelpath(x) for x in testpaths]
+598|            line += ", testpaths: {}".format(", ".join(rel_paths))
+599|        result = [line]
+600|
+601|        plugininfo = config.pluginmanager.list_plugin_distinfo()
+602|        if plugininfo:
+603|            result.append("plugins: %s" % ", ".join(_plugin_nameversions(plugininfo)))
+604|        return result
+605|
+606|    def pytest_collection_finish(self, session):
+607|        self.report_collect(True)
+608|
+609|        if self.config.getoption("collectonly"):
+610|            self._printcollecteditems(session.items)
+611|
+612|        lines = self.config.hook.pytest_report_collectionfinish(
+613|            config=self.config, startdir=self.startdir, items=session.items
+614|        )
+615|        self._write_report_lines_from_hooks(lines)
+616|
+617|        if self.config.getoption("collectonly"):
+618|            if self.stats.get("failed"):
+619|                self._tw.sep("!", "collection failures")
+620|                for rep in self.stats.get("failed"):
+621|                    rep.toterminal(self._tw)
+622|
+623|    def _printcollecteditems(self, items):
+624|        # to print out items and their parent collectors
+625|        # we take care to leave out Instances aka ()
+626|        # because later versions are going to get rid of them anyway
+627|        if self.config.option.verbose < 0:
+628|            if self.config.option.verbose < -1:
+629|                counts = {}
+630|                for item in items:
+631|                    name = item.nodeid.split("::", 1)[0]
+632|                    counts[name] = counts.get(name, 0) + 1
+633|                for name, count in sorted(counts.items()):
+634|                    self._tw.line("%s: %d" % (name, count))
+635|            else:
+636|                for item in items:
+637|                    self._tw.line(item.nodeid)
+638|            return
+639|        stack = []
+640|        indent = ""
+641|        for item in items:
+642|            needed_collectors = item.listchain()[1:]  # strip root node
+643|            while stack:
+644|                if stack == needed_collectors[: len(stack)]:
+645|                    break
+646|                stack.pop()
+647|            for col in needed_collectors[len(stack) :]:
+648|                stack.append(col)
+649|                if col.name == "()":  # Skip Instances.
+650|                    continue
+651|                indent = (len(stack) - 1) * "  "
+652|                self._tw.line("%s%s" % (indent, col))
+653|                if self.config.option.verbose >= 1:
+654|                    if hasattr(col, "_obj") and col._obj.__doc__:
+655|                        for line in col._obj.__doc__.strip().splitlines():
+656|                            self._tw.line("%s%s" % (indent + "  ", line.strip()))
+657|
+658|    @pytest.hookimpl(hookwrapper=True)
+659|    def pytest_sessionfinish(self, exitstatus):
+660|        outcome = yield
+661|        outcome.get_result()
+662|        self._tw.line("")
+663|        summary_exit_codes = (
+664|            EXIT_OK,
+665|            EXIT_TESTSFAILED,
+666|            EXIT_INTERRUPTED,
+667|            EXIT_USAGEERROR,
+668|            EXIT_NOTESTSCOLLECTED,
+669|        )
+670|        if exitstatus in summary_exit_codes:
+671|            self.config.hook.pytest_terminal_summary(
+672|                terminalreporter=self, exitstatus=exitstatus, config=self.config
+673|            )
+674|        if exitstatus == EXIT_INTERRUPTED:
+675|            self._report_keyboardinterrupt()
+676|            del self._keyboardinterrupt_memo
+677|        self.summary_stats()
+678|
+679|    @pytest.hookimpl(hookwrapper=True)
+680|    def pytest_terminal_summary(self):
+681|        self.summary_errors()
+682|        self.summary_failures()
+683|        self.summary_warnings()
+684|        self.summary_passes()
+685|        yield
+686|        self.short_test_summary()
+687|        # Display any extra warnings from teardown here (if any).
+688|        self.summary_warnings()
+689|
+690|    def pytest_keyboard_interrupt(self, excinfo):
+691|        self._keyboardinterrupt_memo = excinfo.getrepr(funcargs=True)
+692|
+693|    def pytest_unconfigure(self):
+694|        if hasattr(self, "_keyboardinterrupt_memo"):
+695|            self._report_keyboardinterrupt()
+696|
+697|    def _report_keyboardinterrupt(self):
+698|        excrepr = self._keyboardinterrupt_memo
+699|        msg = excrepr.reprcrash.message
+700|        self.write_sep("!", msg)
+701|        if "KeyboardInterrupt" in msg:
+702|            if self.config.option.fulltrace:
+703|                excrepr.toterminal(self._tw)
+704|            else:
+705|                excrepr.reprcrash.toterminal(self._tw)
+706|                self._tw.line(
+707|                    "(to show a full traceback on KeyboardInterrupt use --fulltrace)",
+708|                    yellow=True,
+709|                )
+710|
+711|    def _locationline(self, nodeid, fspath, lineno, domain):
+712|        def mkrel(nodeid):
+713|            line = self.config.cwd_relative_nodeid(nodeid)
+714|            if domain and line.endswith(domain):
+715|                line = line[: -len(domain)]
+716|                values = domain.split("[")
+717|                values[0] = values[0].replace(".", "::")  # don't replace '.' in params
+718|                line += "[".join(values)
+719|            return line
+720|
+721|        # collect_fspath comes from testid which has a "/"-normalized path
+722|
+723|        if fspath:
+724|            res = mkrel(nodeid)
+725|            if self.verbosity >= 2 and nodeid.split("::")[0] != fspath.replace(
+726|                "\\", nodes.SEP
+727|            ):
+728|                res += " <- " + self.startdir.bestrelpath(fspath)
+729|        else:
+730|            res = "[location]"
+731|        return res + " "
+732|
+733|    def _getfailureheadline(self, rep):
+734|        head_line = rep.head_line
+735|        if head_line:
+736|            return head_line
+737|        return "test session"  # XXX?
+738|
+739|    def _getcrashline(self, rep):
+740|        try:
+741|            return str(rep.longrepr.reprcrash)
+742|        except AttributeError:
+743|            try:
+744|                return str(rep.longrepr)[:50]
+745|            except AttributeError:
+746|                return ""
+747|
+748|    #
+749|    # summaries for sessionfinish
+750|    #
+751|    def getreports(self, name):
+752|        values = []
+753|        for x in self.stats.get(name, []):
+754|            if not hasattr(x, "_pdbshown"):
+755|                values.append(x)
+756|        return values
+757|
+758|    def summary_warnings(self):
+759|        if self.hasopt("w"):
+760|            all_warnings = self.stats.get("warnings")
+761|            if not all_warnings:
+762|                return
+763|
+764|            final = hasattr(self, "_already_displayed_warnings")
+765|            if final:
+766|                warning_reports = all_warnings[self._already_displayed_warnings :]
+767|            else:
+768|                warning_reports = all_warnings
+769|            self._already_displayed_warnings = len(warning_reports)
+770|            if not warning_reports:
+771|                return
+772|
+773|            reports_grouped_by_message = collections.OrderedDict()
+774|            for wr in warning_reports:
+775|                reports_grouped_by_message.setdefault(wr.message, []).append(wr)
+776|
+777|            title = "warnings summary (final)" if final else "warnings summary"
+778|            self.write_sep("=", title, yellow=True, bold=False)
+779|            for message, warning_reports in reports_grouped_by_message.items():
+780|                has_any_location = False
+781|                for w in warning_reports:
+782|                    location = w.get_location(self.config)
+783|                    if location:
+784|                        self._tw.line(str(location))
+785|                        has_any_location = True
+786|                if has_any_location:
+787|                    lines = message.splitlines()
+788|                    indented = "\n".join("  " + x for x in lines)
+789|                    message = indented.rstrip()
+790|                else:
+791|                    message = message.rstrip()
+792|                self._tw.line(message)
+793|                self._tw.line()
+794|            self._tw.line("-- Docs: https://docs.pytest.org/en/latest/warnings.html")
+795|
+796|    def summary_passes(self):
+797|        if self.config.option.tbstyle != "no":
+798|            if self.hasopt("P"):
+799|                reports = self.getreports("passed")
+800|                if not reports:
+801|                    return
+802|                self.write_sep("=", "PASSES")
+803|                for rep in reports:
+804|                    if rep.sections:
+805|                        msg = self._getfailureheadline(rep)
+806|                        self.write_sep("_", msg, green=True, bold=True)
+807|                        self._outrep_summary(rep)
+808|
+809|    def print_teardown_sections(self, rep):
+810|        showcapture = self.config.option.showcapture
+811|        if showcapture == "no":
+812|            return
+813|        for secname, content in rep.sections:
+814|            if showcapture != "all" and showcapture not in secname:
+815|                continue
+816|            if "teardown" in secname:
+817|                self._tw.sep("-", secname)
+818|                if content[-1:] == "\n":
+819|                    content = content[:-1]
+820|                self._tw.line(content)
+821|
+822|    def summary_failures(self):
+823|        if self.config.option.tbstyle != "no":
+824|            reports = self.getreports("failed")
+825|            if not reports:
+826|                return
+827|            self.write_sep("=", "FAILURES")
+828|            if self.config.option.tbstyle == "line":
+829|                for rep in reports:
+830|                    line = self._getcrashline(rep)
+831|                    self.write_line(line)
+832|            else:
+833|                teardown_sections = {}
+834|                for report in self.getreports(""):
+835|                    if report.when == "teardown":
+836|                        teardown_sections.setdefault(report.nodeid, []).append(report)
+837|
+838|                for rep in reports:
+839|                    msg = self._getfailureheadline(rep)
+840|                    self.write_sep("_", msg, red=True, bold=True)
+841|                    self._outrep_summary(rep)
+842|                    for report in teardown_sections.get(rep.nodeid, []):
+843|                        self.print_teardown_sections(report)
+844|
+845|    def summary_errors(self):
+846|        if self.config.option.tbstyle != "no":
+847|            reports = self.getreports("error")
+848|            if not reports:
+849|                return
+850|            self.write_sep("=", "ERRORS")
+851|            for rep in self.stats["error"]:
+852|                msg = self._getfailureheadline(rep)
+853|                if rep.when == "collect":
+854|                    msg = "ERROR collecting " + msg
+855|                else:
+856|                    msg = "ERROR at %s of %s" % (rep.when, msg)
+857|                self.write_sep("_", msg, red=True, bold=True)
+858|                self._outrep_summary(rep)
+859|
+860|    def _outrep_summary(self, rep):
+861|        rep.toterminal(self._tw)
+862|        showcapture = self.config.option.showcapture
+863|        if showcapture == "no":
+864|            return
+865|        for secname, content in rep.sections:
+866|            if showcapture != "all" and showcapture not in secname:
+867|                continue
+868|            self._tw.sep("-", secname)
+869|            if content[-1:] == "\n":
+870|                content = content[:-1]
+871|            self._tw.line(content)
+872|
+873|    def summary_stats(self):
+874|        session_duration = time.time() - self._sessionstarttime
+875|        (line, color) = build_summary_stats_line(self.stats)
+876|        msg = "%s in %.2f seconds" % (line, session_duration)
+877|        markup = {color: True, "bold": True}
+878|
+879|        if self.verbosity >= 0:
+880|            self.write_sep("=", msg, **markup)
+881|        if self.verbosity == -1:
+882|            self.write_line(msg, **markup)
+883|
+884|    def short_test_summary(self):
+885|        if not self.reportchars:
+886|            return
+887|
+888|        def show_simple(stat, lines):
+889|            failed = self.stats.get(stat, [])
+890|            for rep in failed:
+891|                verbose_word = rep._get_verbose_word(self.config)
+892|                pos = _get_pos(self.config, rep)
+893|                lines.append("%s %s" % (verbose_word, pos))
+894|
+895|        def show_xfailed(lines):
+896|            xfailed = self.stats.get("xfailed", [])
+897|            for rep in xfailed:
+898|                verbose_word = rep._get_verbose_word(self.config)
+899|                pos = _get_pos(self.config, rep)
+900|                lines.append("%s %s" % (verbose_word, pos))
+901|                reason = rep.wasxfail
+902|                if reason:
+903|                    lines.append("  " + str(reason))
+904|
+905|        def show_xpassed(lines):
+906|            xpassed = self.stats.get("xpassed", [])
+907|            for rep in xpassed:
+908|                verbose_word = rep._get_verbose_word(self.config)
+909|                pos = _get_pos(self.config, rep)
+910|                reason = rep.wasxfail
+911|                lines.append("%s %s %s" % (verbose_word, pos, reason))
+912|
+913|        def show_skipped(lines):
+914|            skipped = self.stats.get("skipped", [])
+915|            fskips = _folded_skips(skipped) if skipped else []
+916|            if not fskips:
+917|                return
+918|            verbose_word = skipped[0]._get_verbose_word(self.config)
+919|            for num, fspath, lineno, reason in fskips:
+920|                if reason.startswith("Skipped: "):
+921|                    reason = reason[9:]
+922|                if lineno is not None:
+923|                    lines.append(
+924|                        "%s [%d] %s:%d: %s"
+925|                        % (verbose_word, num, fspath, lineno + 1, reason)
+926|                    )
+927|                else:
+928|                    lines.append("%s [%d] %s: %s" % (verbose_word, num, fspath, reason))
+929|
+930|        def _get_pos(config, rep):
+931|            nodeid = config.cwd_relative_nodeid(rep.nodeid)
+932|            return nodeid
+933|
+934|        REPORTCHAR_ACTIONS = {
+935|            "x": show_xfailed,
+936|            "X": show_xpassed,
+937|            "f": partial(show_simple, "failed"),
+938|            "F": partial(show_simple, "failed"),
+939|            "s": show_skipped,
+940|            "S": show_skipped,
+941|            "p": partial(show_simple, "passed"),
+942|            "E": partial(show_simple, "error"),
+943|        }
+944|
+945|        lines = []
+946|        for char in self.reportchars:
+947|            action = REPORTCHAR_ACTIONS.get(char)
+948|            if action:  # skipping e.g. "P" (passed with output) here.
+949|                action(lines)
+950|
+951|        if lines:
+952|            self.write_sep("=", "short test summary info")
+953|            for line in lines:
+954|                self.write_line(line)
+955|
+956|
+957|def _folded_skips(skipped):
+958|    d = {}
+959|    for event in skipped:
+960|        key = event.longrepr
+961|        assert len(key) == 3, (event, key)
+962|        keywords = getattr(event, "keywords", {})
+963|        # folding reports with global pytestmark variable
+964|        # this is workaround, because for now we cannot identify the scope of a skip marker
+...
+
+
+### src/_pytest/config/__init__.py
+...
+623|        is_simple_module = "/" not in fn and fn.endswith(".py")
+624|        is_package = fn.count("/") == 1 and fn.endswith("__init__.py")
+625|        if is_simple_module:
+626|            module_name, _ = os.path.splitext(fn)
+627|            yield module_name
+628|        elif is_package:
+629|            package_name = os.path.dirname(fn)
+630|            yield package_name
+631|
+632|
+633|class Config(object):
+634|    """ access to configuration values, pluginmanager and plugin hooks.  """
+635|
+636|    def __init__(self, pluginmanager):
+637|        #: access to command line option as attributes.
+638|        #: (deprecated), use :py:func:`getoption() <_pytest.config.Config.getoption>` instead
+639|        self.option = argparse.Namespace()
+640|        from .argparsing import Parser, FILE_OR_DIR
+641|
+642|        _a = FILE_OR_DIR
+643|        self._parser = Parser(
+644|            usage="%%(prog)s [options] [%s] [%s] [...]" % (_a, _a),
+645|            processopt=self._processopt,
+646|        )
+647|        #: a pluginmanager instance
+648|        self.pluginmanager = pluginmanager
+649|        self.trace = self.pluginmanager.trace.root.get("config")
+650|        self.hook = self.pluginmanager.hook
+651|        self._inicache = {}
+652|        self._override_ini = ()
+653|        self._opt2dest = {}
+654|        self._cleanup = []
+655|        self.pluginmanager.register(self, "pytestconfig")
+656|        self._configured = False
+657|        self.invocation_dir = py.path.local()
+658|        self.hook.pytest_addoption.call_historic(kwargs=dict(parser=self._parser))
+659|
+660|    def add_cleanup(self, func):
+661|        """ Add a function to be called when the config object gets out of
+662|        use (usually coninciding with pytest_unconfigure)."""
+663|        self._cleanup.append(func)
+664|
+665|    def _do_configure(self):
+666|        assert not self._configured
+667|        self._configured = True
+668|        self.hook.pytest_configure.call_historic(kwargs=dict(config=self))
+669|
+670|    def _ensure_unconfigure(self):
+671|        if self._configured:
+672|            self._configured = False
+673|            self.hook.pytest_unconfigure(config=self)
+674|            self.hook.pytest_configure._call_history = []
+675|        while self._cleanup:
+676|            fin = self._cleanup.pop()
+677|            fin()
+678|
+679|    def get_terminal_writer(self):
+680|        return self.pluginmanager.get_plugin("terminalreporter")._tw
+681|
+682|    def pytest_cmdline_parse(self, pluginmanager, args):
+683|        try:
+684|            self.parse(args)
+685|        except UsageError:
+686|
+687|            # Handle --version and --help here in a minimal fashion.
+688|            # This gets done via helpconfig normally, but its
+689|            # pytest_cmdline_main is not called in case of errors.
+690|            if getattr(self.option, "version", False) or "--version" in args:
+691|                from _pytest.helpconfig import showversion
+692|
+693|                showversion(self)
+694|            elif (
+695|                getattr(self.option, "help", False) or "--help" in args or "-h" in args
+696|            ):
+697|                self._parser._getparser().print_help()
+698|                sys.stdout.write(
+699|                    "\nNOTE: displaying only minimal help due to UsageError.\n\n"
+700|                )
+701|
+702|            raise
+703|
+704|        return self
+705|
+706|    def notify_exception(self, excinfo, option=None):
+707|        if option and getattr(option, "fulltrace", False):
+708|            style = "long"
+709|        else:
+710|            style = "native"
+711|        excrepr = excinfo.getrepr(
+712|            funcargs=True, showlocals=getattr(option, "showlocals", False), style=style
+713|        )
+714|        res = self.hook.pytest_internalerror(excrepr=excrepr, excinfo=excinfo)
+715|        if not any(res):
+716|            for line in str(excrepr).split("\n"):
+717|                sys.stderr.write("INTERNALERROR> %s\n" % line)
+718|                sys.stderr.flush()
+719|
+720|    def cwd_relative_nodeid(self, nodeid):
+721|        # nodeid's are relative to the rootpath, compute relative to cwd
+722|        if self.invocation_dir != self.rootdir:
+723|            fullpath = self.rootdir.join(nodeid)
+724|            nodeid = self.invocation_dir.bestrelpath(fullpath)
+725|        return nodeid
+726|
+727|    @classmethod
+728|    def fromdictargs(cls, option_dict, args):
+729|        """ constructor useable for subprocesses. """
+730|        config = get_config(args)
+731|        config.option.__dict__.update(option_dict)
+732|        config.parse(args, addopts=False)
+733|        for x in config.option.plugins:
+734|            config.pluginmanager.consider_pluginarg(x)
+735|        return config
+736|
+737|    def _processopt(self, opt):
+738|        for name in opt._short_opts + opt._long_opts:
+739|            self._opt2dest[name] = opt.dest
+740|
+741|        if hasattr(opt, "default") and opt.dest:
+742|            if not hasattr(self.option, opt.dest):
+743|                setattr(self.option, opt.dest, opt.default)
+744|
+745|    @hookimpl(trylast=True)
+746|    def pytest_load_initial_conftests(self, early_config):
+747|        self.pluginmanager._set_initial_conftests(early_config.known_args_namespace)
+748|
+749|    def _initini(self, args):
+750|        ns, unknown_args = self._parser.parse_known_and_unknown_args(
+751|            args, namespace=copy.copy(self.option)
+752|        )
+753|        r = determine_setup(
+754|            ns.inifilename,
+755|            ns.file_or_dir + unknown_args,
+756|            rootdir_cmd_arg=ns.rootdir or None,
+757|            config=self,
+758|        )
+759|        self.rootdir, self.inifile, self.inicfg = r
+760|        self._parser.extra_info["rootdir"] = self.rootdir
+761|        self._parser.extra_info["inifile"] = self.inifile
+762|        self._parser.addini("addopts", "extra command line options", "args")
+763|        self._parser.addini("minversion", "minimally required pytest version")
+764|        self._override_ini = ns.override_ini or ()
+765|
+766|    def _consider_importhook(self, args):
+767|        """Install the PEP 302 import hook if using assertion rewriting.
+768|
+769|        Needs to parse the --assert=<mode> option from the commandline
+770|        and find all the installed plugins to mark them for rewriting
+771|        by the importhook.
+772|        """
+773|        ns, unknown_args = self._parser.parse_known_and_unknown_args(args)
+774|        mode = getattr(ns, "assertmode", "plain")
+775|        if mode == "rewrite":
+776|            try:
+777|                hook = _pytest.assertion.install_importhook(self)
+778|            except SystemError:
+779|                mode = "plain"
+780|            else:
+781|                self._mark_plugins_for_rewrite(hook)
+782|        _warn_about_missing_assertion(mode)
+783|
+784|    def _mark_plugins_for_rewrite(self, hook):
+785|        """
+786|        Given an importhook, mark for rewrite any top-level
+787|        modules or packages in the distribution package for
+788|        all pytest plugins.
+789|        """
+790|        import pkg_resources
+791|
+792|        self.pluginmanager.rewrite_hook = hook
+793|
+794|        if os.environ.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
+795|            # We don't autoload from setuptools entry points, no need to continue.
+796|            return
+797|
+798|        # 'RECORD' available for plugins installed normally (pip install)
+799|        # 'SOURCES.txt' available for plugins installed in dev mode (pip install -e)
+800|        # for installed plugins 'SOURCES.txt' returns an empty list, and vice-versa
+801|        # so it shouldn't be an issue
+802|        metadata_files = "RECORD", "SOURCES.txt"
+803|
+804|        package_files = (
+805|            entry.split(",")[0]
+806|            for entrypoint in pkg_resources.iter_entry_points("pytest11")
+807|            for metadata in metadata_files
+808|            for entry in entrypoint.dist._get_metadata(metadata)
+809|        )
+810|
+811|        for name in _iter_rewritable_modules(package_files):
+812|            hook.mark_rewrite(name)
+813|
+814|    def _validate_args(self, args, via):
+815|        """Validate known args."""
+816|        self._parser._config_source_hint = via
+817|        try:
+818|            self._parser.parse_known_and_unknown_args(
+819|                args, namespace=copy.copy(self.option)
+820|            )
+821|        finally:
+822|            del self._parser._config_source_hint
+823|
+824|        return args
+825|
+826|    def _preparse(self, args, addopts=True):
+827|        if addopts:
+828|            env_addopts = os.environ.get("PYTEST_ADDOPTS", "")
+829|            if len(env_addopts):
+830|                args[:] = (
+831|                    self._validate_args(shlex.split(env_addopts), "via PYTEST_ADDOPTS")
+832|                    + args
+833|                )
+834|        self._initini(args)
+835|        if addopts:
+836|            args[:] = (
+837|                self._validate_args(self.getini("addopts"), "via addopts config") + args
+838|            )
+839|
+840|        self._checkversion()
+841|        self._consider_importhook(args)
+842|        self.pluginmanager.consider_preparse(args)
+843|        if not os.environ.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
+844|            # Don't autoload from setuptools entry point. Only explicitly specified
+845|            # plugins are going to be loaded.
+846|            self.pluginmanager.load_setuptools_entrypoints("pytest11")
+847|        self.pluginmanager.consider_env()
+848|        self.known_args_namespace = ns = self._parser.parse_known_args(
+849|            args, namespace=copy.copy(self.option)
+850|        )
+851|        if self.known_args_namespace.confcutdir is None and self.inifile:
+852|            confcutdir = py.path.local(self.inifile).dirname
+853|            self.known_args_namespace.confcutdir = confcutdir
+854|        try:
+855|            self.hook.pytest_load_initial_conftests(
+856|                early_config=self, args=args, parser=self._parser
+857|            )
+858|        except ConftestImportFailure:
+859|            e = sys.exc_info()[1]
+860|            if ns.help or ns.version:
+861|                # we don't want to prevent --help/--version to work
+862|                # so just let is pass and print a warning at the end
+863|                from _pytest.warnings import _issue_warning_captured
+864|
+865|                _issue_warning_captured(
+866|                    PytestConfigWarning(
+867|                        "could not load initial conftests: {}".format(e.path)
+868|                    ),
+869|                    self.hook,
+870|                    stacklevel=2,
+871|                )
+872|            else:
+873|                raise
+874|
+875|    def _checkversion(self):
+876|        import pytest
+877|        from pkg_resources import parse_version
+878|
+879|        minver = self.inicfg.get("minversion", None)
+880|        if minver:
+881|            if parse_version(minver) > parse_version(pytest.__version__):
+882|                raise pytest.UsageError(
+883|                    "%s:%d: requires pytest-%s, actual pytest-%s'"
+884|                    % (
+885|                        self.inicfg.config.path,
+886|                        self.inicfg.lineof("minversion"),
+887|                        minver,
+888|                        pytest.__version__,
+889|                    )
+890|                )
+891|
+892|    def parse(self, args, addopts=True):
+893|        # parse given cmdline arguments into this config object.
+894|        assert not hasattr(
+895|            self, "args"
+896|        ), "can only parse cmdline args at most once per Config object"
+897|        self._origargs = args
+898|        self.hook.pytest_addhooks.call_historic(
+899|            kwargs=dict(pluginmanager=self.pluginmanager)
+900|        )
+901|        self._preparse(args, addopts=addopts)
+902|        # XXX deprecated hook:
+903|        self.hook.pytest_cmdline_preparse(config=self, args=args)
+904|        self._parser.after_preparse = True
+905|        try:
+906|            args = self._parser.parse_setoption(
+907|                args, self.option, namespace=self.option
+908|            )
+909|            if not args:
+910|                if self.invocation_dir == self.rootdir:
+911|                    args = self.getini("testpaths")
+912|                if not args:
+913|                    args = [str(self.invocation_dir)]
+914|            self.args = args
+915|        except PrintHelp:
+916|            pass
+917|
+918|    def addinivalue_line(self, name, line):
+919|        """ add a line to an ini-file option. The option must have been
+920|        declared but might not yet be set in which case the line becomes the
+921|        the first line in its value. """
+922|        x = self.getini(name)
+923|        assert isinstance(x, list)
+924|        x.append(line)  # modifies the cached list inline
+925|
+926|    def getini(self, name):
+927|        """ return configuration value from an :ref:`ini file <inifiles>`. If the
+928|        specified name hasn't been registered through a prior
+929|        :py:func:`parser.addini <_pytest.config.Parser.addini>`
+930|        call (usually from a plugin), a ValueError is raised. """
+931|        try:
+932|            return self._inicache[name]
+933|        except KeyError:
+934|            self._inicache[name] = val = self._getini(name)
+935|            return val
+936|
+937|    def _getini(self, name):
+938|        try:
+939|            description, type, default = self._parser._inidict[name]
+940|        except KeyError:
+941|            raise ValueError("unknown configuration value: %r" % (name,))
+942|        value = self._get_override_ini_value(name)
+943|        if value is None:
+944|            try:
+945|                value = self.inicfg[name]
+946|            except KeyError:
+947|                if default is not None:
+948|                    return default
+949|                if type is None:
+950|                    return ""
+951|                return []
+952|        if type == "pathlist":
+953|            dp = py.path.local(self.inicfg.config.path).dirpath()
+954|            values = []
+955|            for relpath in shlex.split(value):
+956|                values.append(dp.join(relpath, abs=True))
+957|            return values
+958|        elif type == "args":
+959|            return shlex.split(value)
+960|        elif type == "linelist":
+961|            return [t for t in map(lambda x: x.strip(), value.split("\n")) if t]
+962|        elif type == "bool":
+963|            return bool(_strtobool(value.strip()))
+964|        else:
+965|            assert type is None
+966|            return value
+967|
+968|    def _getconftest_pathlist(self, name, path):
+969|        try:
+970|            mod, relroots = self.pluginmanager._rget_with_confmod(name, path)
+971|        except KeyError:
+972|            return None
+973|        modpath = py.path.local(mod.__file__).dirpath()
+974|        values = []
+975|        for relroot in relroots:
+976|            if not isinstance(relroot, py.path.local):
+977|                relroot = relroot.replace("/", py.path.local.sep)
+978|                relroot = modpath.join(relroot, abs=True)
+979|            values.append(relroot)
+980|        return values
+981|
+982|    def _get_override_ini_value(self, name):
+983|        value = None
+984|        # override_ini is a list of "ini=value" options
+985|        # always use the last item if multiple values are set for same ini-name,
+986|        # e.g. -o foo=bar1 -o foo=bar2 will set foo to bar2
+987|        for ini_config in self._override_ini:
+988|            try:
+989|                key, user_ini_value = ini_config.split("=", 1)
+990|            except ValueError:
+991|                raise UsageError("-o/--override-ini expects option=value style.")
+992|            else:
+993|                if key == name:
+994|                    value = user_ini_value
+995|        return value
+996|
+997|    def getoption(self, name, default=notset, skip=False):
+998|        """ return command line option value.
+999|
+1000|        :arg name: name of the option.  You may also specify
+1001|            the literal ``--OPT`` option instead of the "dest" option name.
+1002|        :arg default: default value if no option of that name exists.
+1003|        :arg skip: if True raise pytest.skip if option does not exists
+1004|            or has a None value.
+1005|        """
+1006|        name = self._opt2dest.get(name, name)
+1007|        try:
+1008|            val = getattr(self.option, name)
+1009|            if val is None and skip:
+1010|                raise AttributeError(name)
+1011|            return val
+1012|        except AttributeError:
+1013|            if default is not notset:
+1014|                return default
+1015|            if skip:
+1016|                import pytest
+1017|
+1018|                pytest.skip("no %r option found" % (name,))
+1019|            raise ValueError("no option named %r" % (name,))
+1020|
+1021|    def getvalue(self, name, path=None):
+1022|        """ (deprecated, use getoption()) """
+1023|        return self.getoption(name)
+1024|
+1025|    def getvalueorskip(self, name, path=None):
+1026|        """ (deprecated, use getoption(skip=True)) """
+1027|        return self.getoption(name, skip=True)
+1028|
+1029|
+1030|def _assertion_supported():
+1031|    try:
+1032|        assert False
+1033|    except AssertionError:
+1034|        return True
+1035|    else:
+1036|        return False
+1037|
+...
+
+
+
+
+###
+
+Please provide the class name, function or method name, or the exact line numbers that need to be edited.
+### Examples:
+```
+full_path1/file1.py
+line: 10
+class: MyClass1
+line: 51
+
+full_path2/file2.py
+function: MyClass2.my_method
+line: 12
+
+full_path3/file3.py
+function: my_function
+line: 24
+line: 156
+```
+
+Return just the location(s)
+
+2024-10-18 13:23:18,328 - INFO - ================================================================================
+2024-10-18 13:23:18,462 - INFO - Creating API request
+2024-10-18 13:23:21,259 - INFO - API response ChatCompletion(id='chatcmpl-AJnnDEruTDZlIUcsujqhuV7A9UfmI', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\nsrc/_pytest/logging.py\nline: 18\n\nsrc/_pytest/logging.py\nfunction: LoggingPlugin.__init__\nline: 395\n\nsrc/_pytest/logging.py\nfunction: LoggingPlugin._setup_cli_logging\nline: 440\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content='```\nsrc/_pytest/logging.py\nline: 18\n\nsrc/_pytest/terminal.py\nfunction: TerminalReporter._locationline\nline: 711\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content='```\nsrc/_pytest/logging.py\nline: 18\n\nsrc/_pytest/logging.py\nfunction: LoggingPlugin.__init__\nline: 395\n\nsrc/_pytest/logging.py\nfunction: LoggingPlugin._setup_cli_logging\nline: 440\n```', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content='```\nsrc/_pytest/logging.py\nline: 18\n```', refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729282999, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_28a34a3a6a', usage=CompletionUsage(completion_tokens=160, prompt_tokens=17276, total_tokens=17436, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:23:21,259 - INFO - ==== raw output ====
+2024-10-18 13:23:21,260 - INFO - ```
+src/_pytest/logging.py
+line: 18
+
+src/_pytest/logging.py
+function: LoggingPlugin.__init__
+line: 395
+
+src/_pytest/logging.py
+function: LoggingPlugin._setup_cli_logging
+line: 440
+```
+2024-10-18 13:23:21,260 - INFO - ================================================================================
+2024-10-18 13:23:21,260 - INFO - ==== extracted locs ====
+2024-10-18 13:23:21,260 - INFO - ['line: 18\nfunction: LoggingPlugin.__init__\nline: 395\nfunction: LoggingPlugin._setup_cli_logging\nline: 440']
+2024-10-18 13:23:21,260 - INFO - ['']
+2024-10-18 13:23:21,260 - INFO - ['']
+2024-10-18 13:23:21,260 - INFO - ================================================================================
+2024-10-18 13:23:21,260 - INFO - ==== raw output ====
+2024-10-18 13:23:21,260 - INFO - ```
+src/_pytest/logging.py
+line: 18
+
+src/_pytest/terminal.py
+function: TerminalReporter._locationline
+line: 711
+```
+2024-10-18 13:23:21,260 - INFO - ================================================================================
+2024-10-18 13:23:21,260 - INFO - ==== extracted locs ====
+2024-10-18 13:23:21,260 - INFO - ['line: 18']
+2024-10-18 13:23:21,261 - INFO - ['function: TerminalReporter._locationline\nline: 711']
+2024-10-18 13:23:21,261 - INFO - ['']
+2024-10-18 13:23:21,261 - INFO - ================================================================================
+2024-10-18 13:23:21,261 - INFO - ==== raw output ====
+2024-10-18 13:23:21,261 - INFO - ```
+src/_pytest/logging.py
+line: 18
+
+src/_pytest/logging.py
+function: LoggingPlugin.__init__
+line: 395
+
+src/_pytest/logging.py
+function: LoggingPlugin._setup_cli_logging
+line: 440
+```
+2024-10-18 13:23:21,261 - INFO - ================================================================================
+2024-10-18 13:23:21,261 - INFO - ==== extracted locs ====
+2024-10-18 13:23:21,261 - INFO - ['line: 18\nfunction: LoggingPlugin.__init__\nline: 395\nfunction: LoggingPlugin._setup_cli_logging\nline: 440']
+2024-10-18 13:23:21,262 - INFO - ['']
+2024-10-18 13:23:21,262 - INFO - ['']
+2024-10-18 13:23:21,262 - INFO - ================================================================================
+2024-10-18 13:23:21,262 - INFO - ==== raw output ====
+2024-10-18 13:23:21,262 - INFO - ```
+src/_pytest/logging.py
+line: 18
+```
+2024-10-18 13:23:21,262 - INFO - ================================================================================
+2024-10-18 13:23:21,262 - INFO - ==== extracted locs ====
+2024-10-18 13:23:21,262 - INFO - ['line: 18']
+2024-10-18 13:23:21,262 - INFO - ['']
+2024-10-18 13:23:21,262 - INFO - ['']
+2024-10-18 13:23:21,262 - INFO - ================================================================================
+2024-10-18 13:23:21,262 - INFO - ==== Input coarse_locs
+2024-10-18 13:23:21,262 - INFO - 
+### src/_pytest/logging.py
+variable: DEFAULT_LOG_FORMAT
+class: ColoredLevelFormatter
+class: LogCaptureHandler
+class: LogCaptureFixture
+class: LoggingPlugin
+class: _LiveLoggingStreamHandler
+### src/_pytest/terminal.py
+class: TerminalReporter
+### src/_pytest/config/__init__.py
+class: Config
+

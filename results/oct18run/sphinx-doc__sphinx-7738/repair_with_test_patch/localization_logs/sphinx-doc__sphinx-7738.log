@@ -1,0 +1,2925 @@
+2024-10-18 13:52:03,457 - INFO - ================ repairing sphinx-doc__sphinx-7738 ================
+2024-10-18 13:52:13,874 - INFO - prompting with message:
+We are currently solving the following issue within our repository. Here is the issue text:
+--- BEGIN ISSUE ---
+overescaped trailing underscore on attribute with napoleon
+**Describe the bug**
+Attribute name `hello_` shows up as `hello\_` in the html (visible backslash) with napoleon.
+
+**To Reproduce**
+Steps to reproduce the behavior:
+
+empty `__init__.py`
+`a.py` contains
+```python
+class A:
+    """
+    Attributes
+    ----------
+    hello_: int
+        hi
+    """
+    pass
+```
+run `sphinx-quickstart`
+add `'sphinx.ext.autodoc', 'sphinx.ext.napoleon'` to extensions in conf.py.
+add `.. autoclass:: a.A` to index.rst
+PYTHONPATH=. make clean html
+open _build/html/index.html in web browser and see the ugly backslash.
+
+**Expected behavior**
+No backslash, a similar output to what I get for
+```rst
+    .. attribute:: hello_
+        :type: int
+
+        hi
+```
+(the type shows up differently as well, but that's not the point here)
+Older versions like 2.4.3 look ok to me.
+
+**Environment info**
+- OS: Linux debian testing
+- Python version: 3.8.3
+- Sphinx version: 3.0.4
+- Sphinx extensions:  sphinx.ext.autodoc, sphinx.ext.napoleon
+- Extra tools:
+
+--- END ISSUE ---
+
+
+We also have a fail to pass unit test for the given issue. We can use this to help identify and fix the issue. Here is the patch text:
+--- BEGIN PATCH ---
+diff --git a/tests/test_ext_napoleon_docstring.py b/tests/test_ext_napoleon_docstring.py
+--- a/tests/test_ext_napoleon_docstring.py
++++ b/tests/test_ext_napoleon_docstring.py
+@@ -1394,6 +1394,26 @@ def test_underscore_in_attribute(self):
+ Attributes
+ ----------
+ 
++arg_ : type
++    some description
++"""
++
++        expected = """
++:ivar arg_: some description
++:vartype arg_: type
++"""
++
++        config = Config(napoleon_use_ivar=True)
++        app = mock.Mock()
++        actual = str(NumpyDocstring(docstring, config, app, "class"))
++
++        self.assertEqual(expected, actual)
++
++    def test_underscore_in_attribute_strip_signature_backslash(self):
++        docstring = """
++Attributes
++----------
++
+ arg_ : type
+     some description
+ """
+@@ -1404,6 +1424,7 @@ def test_underscore_in_attribute(self):
+ """
+ 
+         config = Config(napoleon_use_ivar=True)
++        config.strip_signature_backslash = True
+         app = mock.Mock()
+         actual = str(NumpyDocstring(docstring, config, app, "class"))
+ 
+
+--- END PATCH ---
+
+
+
+Below are some code segments, each from a relevant file. One or more of these files may contain bugs.
+
+--- BEGIN FILE ---
+```
+### sphinx/ext/napoleon/docstring.py
+...
+            lines.append(next(self._line_iter))
+        return lines + self._consume_empty()
+
+    def _dedent(self, lines: List[str], full: bool = False) -> List[str]:
+        if full:
+            return [line.lstrip() for line in lines]
+        else:
+            min_indent = self._get_min_indent(lines)
+            return [line[min_indent:] for line in lines]
+
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+
+    def _fix_field_desc(self, desc: List[str]) -> List[str]:
+        if self._is_list(desc):
+            desc = [''] + desc
+        elif desc[0].endswith('::'):
+            desc_block = desc[1:]
+            indent = self._get_indent(desc[0])
+            block_indent = self._get_initial_indent(desc_block)
+            if block_indent > indent:
+                desc = [''] + desc
+...
+        super().__init__(docstring, config, app, what, name, obj, options)
+
+    def _consume_field(self, parse_type: bool = True, prefer_type: bool = False
+                       ) -> Tuple[str, str, List[str]]:
+        line = next(self._line_iter)
+        if parse_type:
+            _name, _, _type = self._partition_field_on_colon(line)
+        else:
+            _name, _type = line, ''
+        _name, _type = _name.strip(), _type.strip()
+        _name = self._escape_args_and_kwargs(_name)
+
+        if prefer_type and not _type:
+            _type, _name = _name, _type
+        indent = self._get_indent(line) + 1
+        _desc = self._dedent(self._consume_indented_block(indent))
+        _desc = self.__class__(_desc, self._config).lines()
+        return _name, _type, _desc
+
+    def _consume_returns_section(self) -> List[Tuple[str, str, List[str]]]:
+        return self._consume_fields(prefer_type=True)
+...
+```
+--- END FILE ---
+
+Please first localize the bug based on the issue statement, and then generate *SEARCH/REPLACE* edits to fix the issue.
+
+Every *SEARCH/REPLACE* edit must use this format:
+1. The file path
+2. The start of search block: <<<<<<< SEARCH
+3. A contiguous chunk of lines to search for in the existing source code
+4. The dividing line: =======
+5. The lines to replace into the source code
+6. The end of the replace block: >>>>>>> REPLACE
+
+Here is an example:
+
+```python
+### mathweb/flask/app.py
+<<<<<<< SEARCH
+from flask import Flask
+=======
+import math
+from flask import Flask
+>>>>>>> REPLACE
+```
+
+Please note that the *SEARCH/REPLACE* edit REQUIRES PROPER INDENTATION. If you would like to add the line '        print(x)', you must fully write that out, with all those spaces before the code!
+Wrap the *SEARCH/REPLACE* edit in blocks ```python...```.
+2024-10-18 13:52:13,923 - INFO - Creating API request
+2024-10-18 13:52:16,051 - INFO - API response ChatCompletion(id='chatcmpl-AJoFCm5IgD4p30qpxT97Z08o72BW7', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="To address the issue of overescaped trailing underscores in attribute names when using Sphinx's Napoleon extension, we need to modify the `_escape_args_and_kwargs` method in the `sphinx/ext/napoleon/docstring.py` file. Specifically, we should add a condition to check the `strip_signature_backslash` configuration option before escaping the trailing underscore.\n\nHere is the necessary *SEARCH/REPLACE* edit:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE\n```\n\nThis change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration option is not set to `True`.\n\nBy making this change, we respect the configuration option and avoid overescaping the trailing underscore in attribute names.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729284734, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=177, prompt_tokens=1382, total_tokens=1559, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:52:16,098 - INFO - Creating API request
+2024-10-18 13:52:20,871 - INFO - API response ChatCompletion(id='chatcmpl-AJoFEq4LWhs1atgGgyXhqB6bl4nVD', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="Based on the issue description and the provided patch, it looks like the problem lies in the `_escape_args_and_kwargs` method in the `sphinx/ext/napoleon/docstring.py` file. This method is over-escaping the trailing underscore, resulting in the backslash being visible in the final HTML output. The appropriate solution is to conditionally escape the trailing underscore based on a configuration flag (`strip_signature_backslash`).\n\nHere are the *SEARCH/REPLACE* edits to fix the issue:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE\n```\n\nThis change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration is not set. This should prevent the backslash from appearing unexpectedly in the HTML output. \n\nWith this change, running your test should pass and the issue should be resolved.\n\nTo integrate this change, update the file `sphinx/ext/napoleon/docstring.py` as follows:\n\n```python\n    def _escape_args_and_kwargs(self, name: str) -> str:\n<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n```\n\nThis should address the issue of the overescaped trailing underscore in the attribute names.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content="To address the issue with the overescaped trailing underscore in attribute names when using Sphinx's napoleon extension, we need to modify the `_escape_args_and_kwargs` method in the `sphinx/ext/napoleon/docstring.py` file. We should also ensure that the `strip_signature_backslash` configuration setting is accounted for in the appropriate places.\n\nHere's the search/replace edit to make the necessary changes:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE\n```\n\nThis change ensures that the backslash is only added to the trailing underscore if the `strip_signature_backslash` configuration is not set to `True`.\n\nNext, we should ensure that the configuration option `strip_signature_backslash` is properly handled in the relevant parts of the code. \n\nHere's an additional search/replace edit to modify the `_consume_field` method to respect the `strip_signature_backslash` configuration setting:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        _name = self._escape_args_and_kwargs(_name)\n=======\n        _name = self._escape_args_and_kwargs(_name)\n        if self._config.strip_signature_backslash:\n            _name = _name.replace(r'\\_', '_')\n>>>>>>> REPLACE\n```\n\nThese edits should fix the reported issue by ensuring that the backslash is only added to the trailing underscore when the `strip_signature_backslash` configuration is not set to `True`.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content="Based on the provided information, the issue seems to be related to the `_escape_args_and_kwargs` method in the `docstring.py` file. This method is over-escaping the trailing underscore in attribute names. The fix involves introducing a condition to check the `strip_signature_backslash` configuration option and adjust the escaping behavior accordingly.\n\nHere are the necessary SEARCH/REPLACE edits to fix the issue:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE\n```\n\nWith this change, the `_escape_args_and_kwargs` method will respect the `strip_signature_backslash` configuration option and will not escape the trailing underscore when `strip_signature_backslash` is set to `True`.\n\nLet's update the code accordingly. Here’s the final version of the fix:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE\n```\n\nBy applying this change, the method will now conditionally escape the trailing underscore based on the configuration, resolving the issue described.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content="To address the issue with the overescaped trailing underscore on the attribute with Napoleon, we need to modify the `_escape_args_and_kwargs` method to conditionally escape the underscore based on the `strip_signature_backslash` configuration option. Here is the *SEARCH/REPLACE* edit to fix the issue:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE\n```\n\nThis change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration option is not set to `True`.\n\nMake sure to thoroughly test this change to verify that it resolves the issue without introducing any new problems.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=4, logprobs=None, message=ChatCompletionMessage(content="To fix the issue where the attribute name `hello_` shows up as `hello\\_` in the HTML documentation generated by Sphinx with the Napoleon extension, we need to look into how attribute names are being escaped in the `sphinx/ext/napoleon/docstring.py` file.\n\nBased on the provided information, the `strip_signature_backslash` setting in the configuration should be respected when determining whether to escape the trailing underscore in attribute names. To implement this, we need to modify the `_escape_args_and_kwargs` method to conditionally escape the trailing underscore based on the `strip_signature_backslash` configuration.\n\nHere are the SEARCH/REPLACE edits to address the issue:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE\n```\n\nThis change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration is not set to `True`. This should resolve the issue where the backslash appears in the HTML output for attribute names with trailing underscores.\n\nAfter making this change, re-run the tests and rebuild the HTML documentation to verify that the fix works as intended.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=5, logprobs=None, message=ChatCompletionMessage(content='Based on the issue description and the provided patch that modifies the unit tests, the root cause of the issue seems to be related to how trailing underscores in attribute names are being handled by the `_escape_args_and_kwargs` function. The goal is to handle these trailing underscores correctly based on the configuration without adding an unnecessary backslash.\n\nHere are the steps to localize and fix the bug:\n\n1. Investigate the `_escape_args_and_kwargs` function and its usage in `_consume_field`.\n2. Modify the `_escape_args_and_kwargs` function to consider the configuration option `strip_signature_backslash`.\n\nLet\'s proceed with the necessary changes:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith(\'_\'):\n            name = name[:-1] + r\'\\_\'\n\n        if name[:2] == \'**\':\n            return r\'\\*\\*\' + name[2:]\n        elif name[:1] == \'*\':\n            return r\'\\*\' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith(\'_\'):\n            if self._config and getattr(self._config, "strip_signature_backslash", False):\n                name = name[:-1] + \'_\'\n            else:\n                name = name[:-1] + r\'\\_\'\n\n        if name[:2] == \'**\':\n            return r\'\\*\\*\' + name[2:]\n        elif name[:1] == \'*\':\n            return r\'\\*\' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE\n```\n\nThis change incorporates the `strip_signature_backslash` configuration option to control whether the backslash is added before the trailing underscore. If `strip_signature_backslash` is set to `True`, the function will simply add an underscore without the backslash.\n\nWith these changes, the `_escape_args_and_kwargs` function now respects the configuration provided, thereby fixing the issue.', refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=6, logprobs=None, message=ChatCompletionMessage(content="To fix the issue described with the overescaped trailing underscore on attribute names, we need to make modifications in the `sphinx/ext/napoleon/docstring.py` file. Specifically, we need to address the `_escape_args_and_kwargs` function to conditionally escape the underscore based on some config settings.\n\nHere is the *SEARCH/REPLACE* edit that should address the issue:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE\n```\n\nThis change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration setting is not enabled. This way, the user can control whether or not the backslash appears by adjusting this setting.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=7, logprobs=None, message=ChatCompletionMessage(content="Based on the issue description and the provided patch, it seems that the root cause of the problem lies in the `_escape_args_and_kwargs` method of `sphinx/ext/napoleon/docstring.py`. This method is overescaping the trailing underscore in attribute names.\n\nTo fix this, we can introduce a condition to check the `strip_signature_backslash` configuration option in the `_escape_args_and_kwargs` method.\n\nHere are the necessary *SEARCH/REPLACE* edits:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE\n```\n\nThis edit checks if the `strip_signature_backslash` configuration option is set before escaping the trailing underscore. This should resolve the issue of overescaping trailing underscores when using the napoleon extension. \n\nMake sure to run the full test suite after applying this change to ensure that it resolves the issue and does not introduce new problems.", refusal=None, role='assistant', function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=8, logprobs=None, message=ChatCompletionMessage(content="Based on the issue description, the bug seems to be related to the `_escape_args_and_kwargs` function in `sphinx/ext/napoleon/docstring.py`. The function is over-escaping attribute names that end with an underscore (`_`), resulting in an unnecessary backslash being added. We will adjust this function to handle such cases correctly based on the configuration `strip_signature_backslash`.\n\nHere is the *SEARCH/REPLACE* edit to address the issue:\n\n```python\n### sphinx/ext/napoleon/docstring.py\n<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE\n```\n\nThis change ensures that the backslash is only added if `strip_signature_backslash` is not set to `True` in the configuration.", refusal=None, role='assistant', function_call=None, tool_calls=None))], created=1729284736, model='gpt-4o-2024-05-13', object='chat.completion', service_tier=None, system_fingerprint='fp_568f3bfff7', usage=CompletionUsage(completion_tokens=2498, prompt_tokens=1382, total_tokens=3880, completion_tokens_details=CompletionTokensDetails(audio_tokens=None, reasoning_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=0)))
+2024-10-18 13:52:20,871 - INFO - raw output:
+To address the issue of overescaped trailing underscores in attribute names when using Sphinx's Napoleon extension, we need to modify the `_escape_args_and_kwargs` method in the `sphinx/ext/napoleon/docstring.py` file. Specifically, we should add a condition to check the `strip_signature_backslash` configuration option before escaping the trailing underscore.
+
+Here is the necessary *SEARCH/REPLACE* edit:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+```
+
+This change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration option is not set to `True`.
+
+By making this change, we respect the configuration option and avoid overescaping the trailing underscore in attribute names.
+2024-10-18 13:52:20,871 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,871 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,871 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,871 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,871 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:20,871 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,873 - INFO - extracted patch:
+2024-10-18 13:52:20,873 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,873 - INFO - raw output:
+Based on the issue description and the provided patch, it looks like the problem lies in the `_escape_args_and_kwargs` method in the `sphinx/ext/napoleon/docstring.py` file. This method is over-escaping the trailing underscore, resulting in the backslash being visible in the final HTML output. The appropriate solution is to conditionally escape the trailing underscore based on a configuration flag (`strip_signature_backslash`).
+
+Here are the *SEARCH/REPLACE* edits to fix the issue:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+>>>>>>> REPLACE
+```
+
+This change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration is not set. This should prevent the backslash from appearing unexpectedly in the HTML output. 
+
+With this change, running your test should pass and the issue should be resolved.
+
+To integrate this change, update the file `sphinx/ext/napoleon/docstring.py` as follows:
+
+```python
+    def _escape_args_and_kwargs(self, name: str) -> str:
+<<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+>>>>>>> REPLACE
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+```
+
+This should address the issue of the overescaped trailing underscore in the attribute names.
+2024-10-18 13:52:20,873 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,874 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ],
+  "'def _escape_args_and_kwargs(self, name: str) -> str:'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,874 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,874 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,874 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+>>>>>>> REPLACE
+2024-10-18 13:52:20,874 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,876 - INFO - extracted patch:
+2024-10-18 13:52:20,876 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,876 - INFO - raw output:
+To address the issue with the overescaped trailing underscore in attribute names when using Sphinx's napoleon extension, we need to modify the `_escape_args_and_kwargs` method in the `sphinx/ext/napoleon/docstring.py` file. We should also ensure that the `strip_signature_backslash` configuration setting is accounted for in the appropriate places.
+
+Here's the search/replace edit to make the necessary changes:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+```
+
+This change ensures that the backslash is only added to the trailing underscore if the `strip_signature_backslash` configuration is not set to `True`.
+
+Next, we should ensure that the configuration option `strip_signature_backslash` is properly handled in the relevant parts of the code. 
+
+Here's an additional search/replace edit to modify the `_consume_field` method to respect the `strip_signature_backslash` configuration setting:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        _name = self._escape_args_and_kwargs(_name)
+=======
+        _name = self._escape_args_and_kwargs(_name)
+        if self._config.strip_signature_backslash:
+            _name = _name.replace(r'\_', '_')
+>>>>>>> REPLACE
+```
+
+These edits should fix the reported issue by ensuring that the backslash is only added to the trailing underscore when the `strip_signature_backslash` configuration is not set to `True`.
+2024-10-18 13:52:20,876 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,876 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        _name = self._escape_args_and_kwargs(_name)\n=======\n        _name = self._escape_args_and_kwargs(_name)\n        if self._config.strip_signature_backslash:\n            _name = _name.replace(r'\\_', '_')\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,876 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,876 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,876 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:20,876 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,876 - INFO - <<<<<<< SEARCH
+        _name = self._escape_args_and_kwargs(_name)
+=======
+        _name = self._escape_args_and_kwargs(_name)
+        if self._config.strip_signature_backslash:
+            _name = _name.replace(r'\_', '_')
+>>>>>>> REPLACE
+2024-10-18 13:52:20,876 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,880 - INFO - extracted patch:
+2024-10-18 13:52:20,880 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+@@ -885,6 +885,8 @@
+             _name, _type = line, ''
+         _name, _type = _name.strip(), _type.strip()
+         _name = self._escape_args_and_kwargs(_name)
++        if self._config.strip_signature_backslash:
++            _name = _name.replace(r'\_', '_')
+ 
+         if prefer_type and not _type:
+             _type, _name = _name, _type
+2024-10-18 13:52:20,880 - INFO - raw output:
+Based on the provided information, the issue seems to be related to the `_escape_args_and_kwargs` method in the `docstring.py` file. This method is over-escaping the trailing underscore in attribute names. The fix involves introducing a condition to check the `strip_signature_backslash` configuration option and adjust the escaping behavior accordingly.
+
+Here are the necessary SEARCH/REPLACE edits to fix the issue:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+```
+
+With this change, the `_escape_args_and_kwargs` method will respect the `strip_signature_backslash` configuration option and will not escape the trailing underscore when `strip_signature_backslash` is set to `True`.
+
+Let's update the code accordingly. Here’s the final version of the fix:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+```
+
+By applying this change, the method will now conditionally escape the trailing underscore based on the configuration, resolving the issue described.
+2024-10-18 13:52:20,880 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,880 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,880 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,880 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,881 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:20,881 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,884 - INFO - extracted patch:
+2024-10-18 13:52:20,885 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,885 - INFO - raw output:
+To address the issue with the overescaped trailing underscore on the attribute with Napoleon, we need to modify the `_escape_args_and_kwargs` method to conditionally escape the underscore based on the `strip_signature_backslash` configuration option. Here is the *SEARCH/REPLACE* edit to fix the issue:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+```
+
+This change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration option is not set to `True`.
+
+Make sure to thoroughly test this change to verify that it resolves the issue without introducing any new problems.
+2024-10-18 13:52:20,885 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,885 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,885 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,885 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,885 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:20,885 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,892 - INFO - extracted patch:
+2024-10-18 13:52:20,892 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,892 - INFO - raw output:
+To fix the issue where the attribute name `hello_` shows up as `hello\_` in the HTML documentation generated by Sphinx with the Napoleon extension, we need to look into how attribute names are being escaped in the `sphinx/ext/napoleon/docstring.py` file.
+
+Based on the provided information, the `strip_signature_backslash` setting in the configuration should be respected when determining whether to escape the trailing underscore in attribute names. To implement this, we need to modify the `_escape_args_and_kwargs` method to conditionally escape the trailing underscore based on the `strip_signature_backslash` configuration.
+
+Here are the SEARCH/REPLACE edits to address the issue:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+```
+
+This change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration is not set to `True`. This should resolve the issue where the backslash appears in the HTML output for attribute names with trailing underscores.
+
+After making this change, re-run the tests and rebuild the HTML documentation to verify that the fix works as intended.
+2024-10-18 13:52:20,892 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,892 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,893 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,893 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,893 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:20,893 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,896 - INFO - extracted patch:
+2024-10-18 13:52:20,896 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,896 - INFO - raw output:
+Based on the issue description and the provided patch that modifies the unit tests, the root cause of the issue seems to be related to how trailing underscores in attribute names are being handled by the `_escape_args_and_kwargs` function. The goal is to handle these trailing underscores correctly based on the configuration without adding an unnecessary backslash.
+
+Here are the steps to localize and fix the bug:
+
+1. Investigate the `_escape_args_and_kwargs` function and its usage in `_consume_field`.
+2. Modify the `_escape_args_and_kwargs` function to consider the configuration option `strip_signature_backslash`.
+
+Let's proceed with the necessary changes:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+```
+
+This change incorporates the `strip_signature_backslash` configuration option to control whether the backslash is added before the trailing underscore. If `strip_signature_backslash` is set to `True`, the function will simply add an underscore without the backslash.
+
+With these changes, the `_escape_args_and_kwargs` function now respects the configuration provided, thereby fixing the issue.
+2024-10-18 13:52:20,896 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,896 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,896 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,896 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,896 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:20,896 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,953 - INFO - extracted patch:
+2024-10-18 13:52:20,953 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:20,953 - INFO - raw output:
+To fix the issue described with the overescaped trailing underscore on attribute names, we need to make modifications in the `sphinx/ext/napoleon/docstring.py` file. Specifically, we need to address the `_escape_args_and_kwargs` function to conditionally escape the underscore based on some config settings.
+
+Here is the *SEARCH/REPLACE* edit that should address the issue:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+```
+
+This change ensures that the trailing underscore is only escaped if the `strip_signature_backslash` configuration setting is not enabled. This way, the user can control whether or not the backslash appears by adjusting this setting.
+2024-10-18 13:52:20,953 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,953 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,953 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,953 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,953 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:20,953 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,957 - INFO - extracted patch:
+2024-10-18 13:52:20,957 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,957 - INFO - raw output:
+Based on the issue description and the provided patch, it seems that the root cause of the problem lies in the `_escape_args_and_kwargs` method of `sphinx/ext/napoleon/docstring.py`. This method is overescaping the trailing underscore in attribute names.
+
+To fix this, we can introduce a condition to check the `strip_signature_backslash` configuration option in the `_escape_args_and_kwargs` method.
+
+Here are the necessary *SEARCH/REPLACE* edits:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+```
+
+This edit checks if the `strip_signature_backslash` configuration option is set before escaping the trailing underscore. This should resolve the issue of overescaping trailing underscores when using the napoleon extension. 
+
+Make sure to run the full test suite after applying this change to ensure that it resolves the issue and does not introduce new problems.
+2024-10-18 13:52:20,957 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,957 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,957 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,957 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,957 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:20,957 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,960 - INFO - extracted patch:
+2024-10-18 13:52:20,960 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:20,960 - INFO - raw output:
+Based on the issue description, the bug seems to be related to the `_escape_args_and_kwargs` function in `sphinx/ext/napoleon/docstring.py`. The function is over-escaping attribute names that end with an underscore (`_`), resulting in an unnecessary backslash being added. We will adjust this function to handle such cases correctly based on the configuration `strip_signature_backslash`.
+
+Here is the *SEARCH/REPLACE* edit to address the issue:
+
+```python
+### sphinx/ext/napoleon/docstring.py
+<<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+```
+
+This change ensures that the backslash is only added if `strip_signature_backslash` is not set to `True` in the configuration.
+2024-10-18 13:52:20,960 - INFO - === file_to_commands: ===
+2024-10-18 13:52:20,960 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:20,960 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:20,960 - INFO - === edit_commands: ===
+2024-10-18 13:52:20,960 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:20,960 - INFO - 
+----------------------------------------
+2024-10-18 13:52:20,962 - INFO - extracted patch:
+2024-10-18 13:52:20,962 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:21,559 - INFO - === file_to_commands: ===
+2024-10-18 13:52:21,559 - INFO - === file_to_commands: ===
+2024-10-18 13:52:21,559 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:21,559 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:21,559 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:21,559 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:21,560 - INFO - === edit_commands: ===
+2024-10-18 13:52:21,560 - INFO - === edit_commands: ===
+2024-10-18 13:52:21,560 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:21,560 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:21,560 - INFO - 
+----------------------------------------
+2024-10-18 13:52:21,560 - INFO - 
+----------------------------------------
+2024-10-18 13:52:21,562 - INFO - extracted patch:
+2024-10-18 13:52:21,562 - INFO - extracted patch:
+2024-10-18 13:52:21,562 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:21,562 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:22,316 - INFO - === file_to_commands: ===
+2024-10-18 13:52:22,316 - INFO - === file_to_commands: ===
+2024-10-18 13:52:22,316 - INFO - === file_to_commands: ===
+2024-10-18 13:52:22,316 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ],
+  "'def _escape_args_and_kwargs(self, name: str) -> str:'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:22,316 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ],
+  "'def _escape_args_and_kwargs(self, name: str) -> str:'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:22,316 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ],
+  "'def _escape_args_and_kwargs(self, name: str) -> str:'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:22,316 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:22,316 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:22,316 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:22,316 - INFO - === edit_commands: ===
+2024-10-18 13:52:22,316 - INFO - === edit_commands: ===
+2024-10-18 13:52:22,316 - INFO - === edit_commands: ===
+2024-10-18 13:52:22,316 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+>>>>>>> REPLACE
+2024-10-18 13:52:22,316 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+>>>>>>> REPLACE
+2024-10-18 13:52:22,316 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+>>>>>>> REPLACE
+2024-10-18 13:52:22,316 - INFO - 
+----------------------------------------
+2024-10-18 13:52:22,316 - INFO - 
+----------------------------------------
+2024-10-18 13:52:22,316 - INFO - 
+----------------------------------------
+2024-10-18 13:52:22,318 - INFO - extracted patch:
+2024-10-18 13:52:22,318 - INFO - extracted patch:
+2024-10-18 13:52:22,318 - INFO - extracted patch:
+2024-10-18 13:52:22,318 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:22,318 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:22,318 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not getattr(self._config, 'strip_signature_backslash', False):
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:23,115 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,115 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,115 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,115 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,115 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        _name = self._escape_args_and_kwargs(_name)\n=======\n        _name = self._escape_args_and_kwargs(_name)\n        if self._config.strip_signature_backslash:\n            _name = _name.replace(r'\\_', '_')\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,115 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        _name = self._escape_args_and_kwargs(_name)\n=======\n        _name = self._escape_args_and_kwargs(_name)\n        if self._config.strip_signature_backslash:\n            _name = _name.replace(r'\\_', '_')\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,115 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        _name = self._escape_args_and_kwargs(_name)\n=======\n        _name = self._escape_args_and_kwargs(_name)\n        if self._config.strip_signature_backslash:\n            _name = _name.replace(r'\\_', '_')\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,115 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE",
+    "<<<<<<< SEARCH\n        _name = self._escape_args_and_kwargs(_name)\n=======\n        _name = self._escape_args_and_kwargs(_name)\n        if self._config.strip_signature_backslash:\n            _name = _name.replace(r'\\_', '_')\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,115 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,115 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,115 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,115 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,115 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,115 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,115 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,115 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,115 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,115 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,115 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        _name = self._escape_args_and_kwargs(_name)
+=======
+        _name = self._escape_args_and_kwargs(_name)
+        if self._config.strip_signature_backslash:
+            _name = _name.replace(r'\_', '_')
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        _name = self._escape_args_and_kwargs(_name)
+=======
+        _name = self._escape_args_and_kwargs(_name)
+        if self._config.strip_signature_backslash:
+            _name = _name.replace(r'\_', '_')
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        _name = self._escape_args_and_kwargs(_name)
+=======
+        _name = self._escape_args_and_kwargs(_name)
+        if self._config.strip_signature_backslash:
+            _name = _name.replace(r'\_', '_')
+>>>>>>> REPLACE
+2024-10-18 13:52:23,115 - INFO - <<<<<<< SEARCH
+        _name = self._escape_args_and_kwargs(_name)
+=======
+        _name = self._escape_args_and_kwargs(_name)
+        if self._config.strip_signature_backslash:
+            _name = _name.replace(r'\_', '_')
+>>>>>>> REPLACE
+2024-10-18 13:52:23,116 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,116 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,116 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,116 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,118 - INFO - extracted patch:
+2024-10-18 13:52:23,118 - INFO - extracted patch:
+2024-10-18 13:52:23,118 - INFO - extracted patch:
+2024-10-18 13:52:23,118 - INFO - extracted patch:
+2024-10-18 13:52:23,118 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+@@ -885,6 +885,8 @@
+             _name, _type = line, ''
+         _name, _type = _name.strip(), _type.strip()
+         _name = self._escape_args_and_kwargs(_name)
++        if self._config.strip_signature_backslash:
++            _name = _name.replace(r'\_', '_')
+ 
+         if prefer_type and not _type:
+             _type, _name = _name, _type
+2024-10-18 13:52:23,118 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+@@ -885,6 +885,8 @@
+             _name, _type = line, ''
+         _name, _type = _name.strip(), _type.strip()
+         _name = self._escape_args_and_kwargs(_name)
++        if self._config.strip_signature_backslash:
++            _name = _name.replace(r'\_', '_')
+ 
+         if prefer_type and not _type:
+             _type, _name = _name, _type
+2024-10-18 13:52:23,118 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+@@ -885,6 +885,8 @@
+             _name, _type = line, ''
+         _name, _type = _name.strip(), _type.strip()
+         _name = self._escape_args_and_kwargs(_name)
++        if self._config.strip_signature_backslash:
++            _name = _name.replace(r'\_', '_')
+ 
+         if prefer_type and not _type:
+             _type, _name = _name, _type
+2024-10-18 13:52:23,118 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+@@ -885,6 +885,8 @@
+             _name, _type = line, ''
+         _name, _type = _name.strip(), _type.strip()
+         _name = self._escape_args_and_kwargs(_name)
++        if self._config.strip_signature_backslash:
++            _name = _name.replace(r'\_', '_')
+ 
+         if prefer_type and not _type:
+             _type, _name = _name, _type
+2024-10-18 13:52:23,906 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,906 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,906 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,906 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,906 - INFO - === file_to_commands: ===
+2024-10-18 13:52:23,906 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,906 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,906 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,906 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,906 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:23,906 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,906 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,906 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,906 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,906 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:23,907 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,907 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,907 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,907 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,907 - INFO - === edit_commands: ===
+2024-10-18 13:52:23,907 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:23,907 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:23,907 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:23,907 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:23,907 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+>>>>>>> REPLACE
+2024-10-18 13:52:23,907 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,907 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,907 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,907 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,907 - INFO - 
+----------------------------------------
+2024-10-18 13:52:23,909 - INFO - extracted patch:
+2024-10-18 13:52:23,909 - INFO - extracted patch:
+2024-10-18 13:52:23,909 - INFO - extracted patch:
+2024-10-18 13:52:23,909 - INFO - extracted patch:
+2024-10-18 13:52:23,909 - INFO - extracted patch:
+2024-10-18 13:52:23,909 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:23,909 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:23,909 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:23,909 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:23,909 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:24,733 - INFO - === file_to_commands: ===
+2024-10-18 13:52:24,733 - INFO - === file_to_commands: ===
+2024-10-18 13:52:24,733 - INFO - === file_to_commands: ===
+2024-10-18 13:52:24,733 - INFO - === file_to_commands: ===
+2024-10-18 13:52:24,733 - INFO - === file_to_commands: ===
+2024-10-18 13:52:24,733 - INFO - === file_to_commands: ===
+2024-10-18 13:52:24,733 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:24,733 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:24,733 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:24,733 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:24,733 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:24,733 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:24,733 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:24,733 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:24,733 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:24,733 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:24,733 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:24,733 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:24,733 - INFO - === edit_commands: ===
+2024-10-18 13:52:24,733 - INFO - === edit_commands: ===
+2024-10-18 13:52:24,733 - INFO - === edit_commands: ===
+2024-10-18 13:52:24,733 - INFO - === edit_commands: ===
+2024-10-18 13:52:24,733 - INFO - === edit_commands: ===
+2024-10-18 13:52:24,733 - INFO - === edit_commands: ===
+2024-10-18 13:52:24,733 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:24,733 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:24,733 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:24,733 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:24,733 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:24,733 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:24,734 - INFO - 
+----------------------------------------
+2024-10-18 13:52:24,734 - INFO - 
+----------------------------------------
+2024-10-18 13:52:24,734 - INFO - 
+----------------------------------------
+2024-10-18 13:52:24,734 - INFO - 
+----------------------------------------
+2024-10-18 13:52:24,734 - INFO - 
+----------------------------------------
+2024-10-18 13:52:24,734 - INFO - 
+----------------------------------------
+2024-10-18 13:52:24,736 - INFO - extracted patch:
+2024-10-18 13:52:24,736 - INFO - extracted patch:
+2024-10-18 13:52:24,736 - INFO - extracted patch:
+2024-10-18 13:52:24,736 - INFO - extracted patch:
+2024-10-18 13:52:24,736 - INFO - extracted patch:
+2024-10-18 13:52:24,736 - INFO - extracted patch:
+2024-10-18 13:52:24,736 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:24,736 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:24,736 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:24,736 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:24,736 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:24,736 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - === file_to_commands: ===
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,451 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - === edit_commands: ===
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,452 - INFO - 
+----------------------------------------
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - extracted patch:
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:25,454 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n=======\n    def _escape_args_and_kwargs(self, name: str) -> str:\n        if name.endswith('_'):\n            if self._config and getattr(self._config, \"strip_signature_backslash\", False):\n                name = name[:-1] + '_'\n            else:\n                name = name[:-1] + r'\\_'\n\n        if name[:2] == '**':\n            return r'\\*\\*' + name[2:]\n        elif name[:1] == '*':\n            return r'\\*' + name[1:]\n        else:\n            return name\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,233 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - <<<<<<< SEARCH
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+=======
+    def _escape_args_and_kwargs(self, name: str) -> str:
+        if name.endswith('_'):
+            if self._config and getattr(self._config, "strip_signature_backslash", False):
+                name = name[:-1] + '_'
+            else:
+                name = name[:-1] + r'\_'
+
+        if name[:2] == '**':
+            return r'\*\*' + name[2:]
+        elif name[:1] == '*':
+            return r'\*' + name[1:]
+        else:
+            return name
+>>>>>>> REPLACE
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,234 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - extracted patch:
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,236 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -319,7 +319,10 @@
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+         if name.endswith('_'):
+-            name = name[:-1] + r'\_'
++            if self._config and getattr(self._config, "strip_signature_backslash", False):
++                name = name[:-1] + '_'
++            else:
++                name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+             return r'\*\*' + name[2:]
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - === file_to_commands: ===
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - === edit_commands: ===
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,938 - INFO - 
+----------------------------------------
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - extracted patch:
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:26,940 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - === file_to_commands: ===
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - === edit_commands: ===
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,685 - INFO - 
+----------------------------------------
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - extracted patch:
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:27,687 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,439 - INFO - === file_to_commands: ===
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - {
+  "'sphinx/ext/napoleon/docstring.py'": [
+    "<<<<<<< SEARCH\n        if name.endswith('_'):\n            name = name[:-1] + r'\\_'\n=======\n        if name.endswith('_') and not self._config.strip_signature_backslash:\n            name = name[:-1] + r'\\_'\n>>>>>>> REPLACE"
+  ]
+}
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edited_file: 'sphinx/ext/napoleon/docstring.py' ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - === edit_commands: ===
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - <<<<<<< SEARCH
+        if name.endswith('_'):
+            name = name[:-1] + r'\_'
+=======
+        if name.endswith('_') and not self._config.strip_signature_backslash:
+            name = name[:-1] + r'\_'
+>>>>>>> REPLACE
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,440 - INFO - 
+----------------------------------------
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - extracted patch:
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
+2024-10-18 13:52:28,442 - INFO - --- sphinx/ext/napoleon/docstring.py
++++ sphinx/ext/napoleon/docstring.py
+@@ -318,7 +318,7 @@
+             return [line[min_indent:] for line in lines]
+ 
+     def _escape_args_and_kwargs(self, name: str) -> str:
+-        if name.endswith('_'):
++        if name.endswith('_') and not self._config.strip_signature_backslash:
+             name = name[:-1] + r'\_'
+ 
+         if name[:2] == '**':
