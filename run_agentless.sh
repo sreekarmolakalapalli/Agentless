@@ -14,7 +14,7 @@ python3 agentless/fl/localize.py --file_level \
                                 --skip_existing \
                                 --target_id=${instance}
 
-# 2: Have LLM determine irrelevant folders (for retreival)
+# 2: Have LLM determine irrelevant folders (for retrieval)
 python agentless/fl/localize.py --file_level \
                                 --irrelevant \
                                 --output_folder $result_folder/file_level_irrelevant \
@@ -71,6 +71,7 @@ python agentless/fl/localize.py --merge \
 # ---- REPAIR ----
 
 # Generate patches
+# TODO: currently only using loc_merged_0_0 in validation (I think)
 for i in {0..3}; do
     python agentless/repair/repair.py --loc_file $result_folder/edit_location_individual/loc_merged_${i}-${i}_outputs.jsonl \
                                     --output_folder $result_folder/repair_sample_$((i+1)) \
@@ -105,7 +106,6 @@ for i in {0..3}; do
                                                     --predictions_path="${folder}/output_${num}_processed.jsonl" \
                                                     --run_id="${run_id_prefix}_regression_${num}" \
                                                     --num_workers 10
-
     done
 done
 
