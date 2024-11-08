@@ -68,9 +68,9 @@ python agentless/fl/localize.py --merge \
                                 --start_file $result_folder/edit_location_samples/loc_outputs.jsonl \
                                 --target_id=${instance}
 
----- REPAIR ----
+# ---- REPAIR ----
 
-Generate patches
+# Generate patches
 for i in {0..3}; do
     python agentless/repair/repair.py --loc_file $result_folder/edit_location_individual/loc_merged_${i}-${i}_outputs.jsonl \
                                     --output_folder $result_folder/repair_sample_$((i+1)) \
