@@ -7,6 +7,9 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from datasets import load_dataset
+
+
 import docker
 from swebench.harness.constants import (
     FAIL_TO_PASS,
@@ -27,6 +30,9 @@ from swebench.harness.test_spec import (
 
 from swebench.harness.utils import get_test_directives
 from tqdm import tqdm
+
+
+ds = load_dataset("princeton-nlp/SWE-bench_Lite")
 
 OPEN_FILE_LIMIT = 4096
 
@@ -365,12 +371,23 @@ def run_reproduction_tests(
 
     predictions = {}
 
+    ds = load_dataset(dataset_name)
+
+    df = ds['test'].to_pandas()
     for idx, one_instance_id in enumerate(instance_ids):
+        
+        df = df[df['instance_id'] == one_instance_id].to_dict()
+
+        
+
         if not apply_model_patch:
             patch_to_apply = NOOP_PATCH
         else:
             patch_to_apply = model_patches[idx]
-            
+
+        
+        combined_diff = patch_to_apply + "\n" + list(df['test_patch'].values())[0] # take the value element
+    
         if testing_patches:
             predictions[one_instance_id] = {
                 "model_name_or_path": "test",
@@ -381,7 +398,7 @@ def run_reproduction_tests(
         else:
             predictions[one_instance_id] = {
                 "model_name_or_path": "test",  # TODO change.
-                "model_patch": patch_to_apply,
+                "model_patch": combined_diff,
                 "instance_id": one_instance_id,
             }
 
