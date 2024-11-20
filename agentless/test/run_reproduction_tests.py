@@ -15,6 +15,9 @@ def run_reproduction_for_each_instance(args, lines, run_id, test_jsonl):
     instance_ids = [line["instance_id"] for line in lines]
     patches = [line["model_patch"] for line in lines]
 
+    print("instance ids", instance_ids)
+    print("patches", patches)
+
     results = run_reproduction_tests(
         instance_ids,
         patches,
@@ -35,13 +38,26 @@ def _run_reproduction_tests(args):
         # for reproduction test selection
         # run on original repo to select tests which can reproduce the issue
         ds = load_dataset(args.dataset)
-        instance_ids = ds["test"]["instance_id"]
+        # instance_ids = ds["test"]["instance_id"]
+        # patches = [
+        #     {"instance_id": instance_id, "patch": "", "normalized_patch": ""}
+        #     for instance_id in instance_ids
+        # ]
+        
+        instance_ids = args.instance_ids # filtering to only create one env for this experiment
         patches = [
-            {"instance_id": instance_id, "patch": "", "normalized_patch": ""}
-            for instance_id in instance_ids
+            {
+                "instance_id": args.instance_ids,
+                "patch": "",
+                "normalized_patch": ""
+            }
         ]
-
+        print("instance_ids", instance_ids)
+        print("patches", patches)
+        
         evaluation_tests = load_jsonl(args.test_jsonl)
+
+        print("length of evaluation test", len(evaluation_tests))
 
         results = run_reproduction_tests(
             instance_ids,
@@ -55,6 +71,8 @@ def _run_reproduction_tests(args):
             test_jsonl=args.test_jsonl,
             dataset_name=args.dataset,
         )
+
+        print("results", results)
 
         with open(args.test_jsonl.replace(".jsonl", "_verified.jsonl"), "w") as file:
             for evaluation_test in evaluation_tests:
@@ -96,6 +114,7 @@ def _run_reproduction_tests(args):
             data_lines = [json.loads(line) for line in file]
 
         if args.load:
+            
             reproduction_dict = {}
             for data in data_lines:
                 instance_id = data["instance_id"]
@@ -109,6 +128,7 @@ def _run_reproduction_tests(args):
                 else:
                     reproduction_dict[instance_id] = False
         else:
+            print("running reproduction test")
             reproduction_dict = run_reproduction_for_each_instance(
                 args, data_lines, args.run_id, args.test_jsonl
             )

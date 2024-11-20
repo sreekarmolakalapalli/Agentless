@@ -16,6 +16,7 @@ from swebench.harness.constants import (
     USE_X86,
     SWEbenchInstance,
 )
+
 from swebench.harness.docker_build import build_env_images
 from swebench.harness.run_evaluation import get_dataset_from_preds, run_instance
 from swebench.harness.test_spec import (
@@ -23,6 +24,7 @@ from swebench.harness.test_spec import (
     make_env_script_list,
     make_repo_script_list,
 )
+
 from swebench.harness.utils import get_test_directives
 from tqdm import tqdm
 
@@ -80,7 +82,7 @@ def txt_file_contains_string(path_to_txt, expected_output, other_patterns=[]):
 
 def create_instance_test_dict(jsonl_file_path):
     instance_test_dict = {}
-
+    
     with open(jsonl_file_path, "r") as file:
         for line in file:
             json_obj = json.loads(line.strip())
@@ -186,6 +188,7 @@ def make_reproduction_script_list(
     ]
     if "eval_commands" in specs:
         eval_commands += specs["eval_commands"]
+    
     eval_commands += [
         f"git config --global --add safe.directory {repo_directory}",  # for nonroot user
         f"cd {repo_directory}",
@@ -196,8 +199,10 @@ def make_reproduction_script_list(
         "source /opt/miniconda3/bin/activate",
         f"conda activate {env_name}",
     ]
+
     if "install" in specs:
         eval_commands.append(specs["install"])
+    
     eval_commands += [
         reset_tests_command,
         fake_apply_test_patch_command,  # If we don't apply some sort of patch the harness won't return the tests which passed
@@ -345,9 +350,12 @@ def run_reproduction_tests(
     assert len(instance_ids) == len(
         model_patches
     ), "There must be the same number of instance_ids as model patches"
+
     resource.setrlimit(resource.RLIMIT_NOFILE, (OPEN_FILE_LIMIT, OPEN_FILE_LIMIT))
 
     instance_to_reproduction_code = create_instance_test_dict(test_jsonl)
+
+    print("instance to reproduction code", type(instance_to_reproduction_code))
 
     print(f"Using run_id: {run_id}")
 
@@ -362,6 +370,7 @@ def run_reproduction_tests(
             patch_to_apply = NOOP_PATCH
         else:
             patch_to_apply = model_patches[idx]
+            
         if testing_patches:
             predictions[one_instance_id] = {
                 "model_name_or_path": "test",
@@ -376,9 +385,17 @@ def run_reproduction_tests(
                 "instance_id": one_instance_id,
             }
 
+    print("instance ids", instance_ids)
+
+    print("predictions", predictions)
+    
     instances = get_dataset_from_preds(
         dataset_name, split, instance_ids, predictions, run_id
     )
+
+    #print(instances)
+
+    print("Instance data", instances)
 
     if not instances:
         print("No instances to run.")
@@ -387,15 +404,17 @@ def run_reproduction_tests(
 
     no_f2p_instances = []
 
+
     for instance in instances:
         revised_instance = instance
-        revised_instance["FAIL_TO_PASS"] = "[]"
+        revised_instance["FAIL_TO_PASS"] = instance["FAIL_TO_PASS"]
         revised_instance["PASS_TO_PASS"] = "[]"
 
         if instance["instance_id"] in instance_to_reproduction_code:
-            revised_instance["production_test"] = instance_to_reproduction_code[
-                instance["instance_id"]
-            ]
+            # revised_instance["production_test"] = instance_to_reproduction_code[
+            #     instance["instance_id"]
+            # ]
+            revised_instance["production_test"] = None
             # only run if there is production test
             no_f2p_instances.append(revised_instance)
 
@@ -469,11 +488,25 @@ def run_reproduction_tests(
                     else:
                         expected_output = "Issue resolved"
                         other_patterns = ["Issue reproduced", "Other issues"]
-                    path_to_log = f"logs/run_evaluation/{run_id}/{split}/{instance_id}/test_output.txt"
-                    passes_tests = txt_file_contains_string(
-                        path_to_log, expected_output, other_patterns=other_patterns
-                    )
-                    results[instance_id] = passes_tests
+
+                    # updated path here
+
+                    path_to_log = f"logs/run_evaluation/{run_id}/{split}/{instance_id}/report.json"
+                    # passes_tests = txt_file_contains_string(
+                    #     path_to_log, expected_output, other_patterns=other_patterns
+                    # )
+                    result_ftp = []
+                    try:
+                        with open(path_to_log) as f:
+                            result_ftp = json.loads(f)["tests_status"]["FAIL_TO_PASS"]["failure"]
+                    except Exception as e:
+                        print(e)
+
+                    if len(result_ftp) == 0:
+                        results[instance_id] = True
+                    else:
+                        results[instance_id] = False
+
                 try:
                     # Update progress bar, check if instance ran successfully
                     future.result()
@@ -516,6 +549,7 @@ def run_tests(
             patch_to_apply = NOOP_PATCH
         else:
             patch_to_apply = model_patches[idx]
+            
         predictions[one_instance_id] = {
             "model_name_or_path": "test",
             "model_patch": patch_to_apply,
@@ -563,6 +597,7 @@ def run_tests(
     test_specs = rearrange_patches(test_specs)
 
     instance_image_ids = {x.instance_image_key for x in test_specs}
+    
     existing_images = {
         tag
         for i in client.images.list(all=True)

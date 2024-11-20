@@ -1,7 +1,9 @@
 #!/bin/bash
 
-result_folder="results/dj11099demo"
-instance="django__django-11099"
+export PYTHONPATH="${PWD}:$PYTHONPATH"
+
+result_folder="results/django_10914"
+instance="django__django-10914"
 # instance="astropy__astropy-14182"
 # instance="astropy__astropy-12907"
 # Previously ran: django__django-10914
@@ -42,6 +44,7 @@ python agentless/fl/combine.py  --retrieval_loc_file $result_folder/retrievel_em
                                 --model_loc_file $result_folder/file_level/loc_outputs.jsonl \
                                 --top_n 3 \
                                 --output_folder $result_folder/file_level_combined
+
 # 
 # 5: Use LLM to find suspicious locations in file (related elements)
 printf "\nxxxxx\n[LOCALIZE:Use LLM to find suspicious locations in file (related elements).]\n"
