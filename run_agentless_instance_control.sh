@@ -18,7 +18,8 @@ python3 agentless/fl/localize.py --file_level \
                                 --output_folder $result_folder/file_level \
                                 --num_threads 10 \
                                 --skip_existing \
-                                --target_id=${instance}
+                                --target_id=${instance} \
+                                --dataset=princeton-nlp/SWE-bench_Verified
 
 # read -n 1 -p "press a key to continue"
 # 
@@ -30,7 +31,9 @@ python agentless/fl/localize.py --file_level \
                                 --output_folder $result_folder/file_level_irrelevant \
                                 --num_threads 10 \
                                 --skip_existing \
-                                --target_id=${instance}
+                                --target_id=${instance} \
+                                --dataset=princeton-nlp/SWE-bench_Verified
+
 # read -n 1 -p "press a key to continue"
 # 
 # 3: Use embedding retrieval
@@ -42,7 +45,8 @@ python agentless/fl/retrieve.py --index_type simple \
                                 --output_folder $result_folder/retrievel_embedding \
                                 --persist_dir embedding/swe-bench_simple \
                                 --num_threads 10 \
-                                --target_id=${instance}
+                                --target_id=${instance} \
+                                --dataset=princeton-nlp/SWE-bench_Verified
 # read -n 1 -p "press a key to continue"
 # 
 # 4: Combine LLM and embedding retrieved files
@@ -51,7 +55,7 @@ printf "\nxxxxx\n[LOCALIZE:Combine LLM and embedding retrieved files.]\n"
 python agentless/fl/combine.py  --retrieval_loc_file $result_folder/retrievel_embedding/retrieve_locs.jsonl \
                                 --model_loc_file $result_folder/file_level/loc_outputs.jsonl \
                                 --top_n 3 \
-                                --output_folder $result_folder/file_level_combined
+                                --output_folder $result_folder/file_level_combined \
 # read -n 1 -p "press a key to continue"
 # 
 # 5: Use LLM to find suspicious locations in file (related elements)
@@ -65,7 +69,8 @@ python agentless/fl/localize.py --related_level \
                                 --start_file $result_folder/file_level_combined/combined_locs.jsonl \
                                 --num_threads 10 \
                                 --skip_existing \
-                                --target_id=${instance}
+                                --target_id=${instance} \
+                                --dataset=princeton-nlp/SWE-bench_Verified
 # read -n 1 -p "press a key to continue"
 # 
 # 6: Use LLM to get edit locations from related elements
@@ -80,7 +85,9 @@ python agentless/fl/localize.py --fine_grain_line_level \
                                 --start_file $result_folder/related_elements/loc_outputs.jsonl \
                                 --num_threads 10 \
                                 --skip_existing \
-                                --target_id=${instance}
+                                --target_id=${instance} \
+                                --dataset=princeton-nlp/SWE-bench_Verified
+
 # read -n 1 -p "press a key to continue"
 # 
 # 7: Generate sets of edit locations from the individual ones
@@ -91,7 +98,9 @@ python agentless/fl/localize.py --merge \
                                 --top_n 3 \
                                 --num_samples 4 \
                                 --start_file $result_folder/edit_location_samples/loc_outputs.jsonl \
-                                --target_id=${instance}
+                                --target_id=${instance} \
+                                --dataset=princeton-nlp/SWE-bench_Verified
+
 # read -n 1 -p "press a key to continue"
 
 # ---- REPAIR ----
@@ -109,7 +118,8 @@ for i in {0..3}; do
                                     --cot \
                                     --diff_format \
                                     --gen_and_process \
-                                    --num_threads 2 
+                                    --num_threads 2 \
+                                    --dataset=princeton-nlp/SWE-bench_Verified
 done
 # read -n 1 -p "press a key to continue"
 
@@ -121,7 +131,8 @@ printf "\nxxxxx\n[VALIDATION: Getting list of passing regression tests.]\n"
 # NOTE: errors when doing a single instance, it tries to do all.
 python agentless/test/run_regression_tests.py --run_id generate_regression_tests \
                                               --output_file $result_folder/passing_tests.jsonl \
-                                              --instance_ids=${instance}
+                                              --instance_ids=${instance} \
+                                              --dataset=princeton-nlp/SWE-bench_Verified
 # read -n 1 -p "press a key to continue"
 
 printf "\nxxxxx\n[VALIDATION: LLM removes tests which aren't useful.]\n"
@@ -129,7 +140,9 @@ printf "\nxxxxx\n[VALIDATION: LLM removes tests which aren't useful.]\n"
 # OUTPUT: select_regression/*
 python agentless/test/select_regression_tests.py --passing_tests $result_folder/passing_tests.jsonl \
                                                  --output_folder $result_folder/select_regression \
-                                                 --instance_ids=${instance}
+                                                 --instance_ids=${instance} \
+                                                 --dataset=princeton-nlp/SWE-bench_Verified
+
 # read -n 1 -p "press a key to continue"
 
 printf "\nxxxxx\n[VALIDATION: Run all regression tests which were identified as useful.]\n"
@@ -142,7 +155,8 @@ for i in {0..3}; do
         python agentless/test/run_regression_tests.py --regression_tests $result_folder/select_regression/output.jsonl \
                                                     --predictions_path="${folder}/output_${num}_processed.jsonl" \
                                                     --run_id="${run_id_prefix}_regression_${num}" \
-                                                    --num_workers 4
+                                                    --num_workers 4 \
+                                                    --dataset=princeton-nlp/SWE-bench_Verified
     done
 done
 # read -n 1 -p "press a key to continue"
@@ -154,7 +168,8 @@ printf "\nxxxxx\n[VALIDATION: Generating reproduction tests.]\n"
 python agentless/test/generate_reproduction_tests.py --max_samples 40 \
                                                      --output_folder $result_folder/reproduction_test_samples \
                                                      --num_threads 4 \
-                                                     --target_id=${instance}
+                                                     --target_id=${instance} \
+                                                     --dataset=princeton-nlp/SWE-bench_Verified
 # read -n 1 -p "press a key to continue"
                                                      
 
@@ -167,7 +182,8 @@ python agentless/test/run_reproduction_tests.py --run_id="reproduction_test_gene
                                                 --test_jsonl="${result_folder}/reproduction_test_samples/output_1_processed_reproduction_test.jsonl" \
                                                 --num_workers 4 \
                                                 --testing \
-                                                --instance_ids=${instance}
+                                                --instance_ids=${instance} \
+                                                --dataset=princeton-nlp/SWE-bench_Verified
 for st in {0..36..4}; do   en=$((st + 3));   
         echo "Processing ${st} to ${en}";   
         for num in $(seq $st $en); do
@@ -176,7 +192,8 @@ for st in {0..36..4}; do   en=$((st + 3));
                                                             --test_jsonl="${result_folder}/reproduction_test_samples/output_${num}_processed_reproduction_test.jsonl" \
                                                             --num_workers 4 \
                                                             --testing \
-                                                            --instance_ids=${instance}
+                                                            --instance_ids=${instance} \
+                                                            --dataset=princeton-nlp/SWE-bench_Verified
     done
 done
 # read -n 1 -p "press a key to continue"
@@ -187,7 +204,8 @@ printf "\nxxxxx\n[VALIDATION: Picking best reproduction test.]\n"
 python agentless/test/generate_reproduction_tests.py --max_samples 40 \
                                                      --output_folder $result_folder/reproduction_test_samples \
                                                      --output_file reproduction_tests.jsonl \
-                                                     --select
+                                                     --select \
+                                                     --dataset=princeton-nlp/SWE-bench_Verified
 # read -n 1 -p "press a key to continue"
 
 # 7. Evaluate patches on chosen generated unit test
@@ -198,22 +216,20 @@ for rs in {0..3..1}; do
         run_id_prefix=$(basename $folder); 
         python agentless/test/run_reproduction_tests.py --test_jsonl $result_folder/reproduction_test_samples/reproduction_tests.jsonl \
                                                         --predictions_path="${folder}/output_${num}_processed.jsonl" \
-                                                        --run_id="${run_id_prefix}_reproduction_${num}" --num_workers 10;
+                                                        --run_id="${run_id_prefix}_reproduction_${num}" --num_workers 10; \
+                                                        --dataset=princeton-nlp/SWE-bench_Verified
     done
 done
 # read -n 1 -p "press a key to continue"
 
 # 8. select best patch with regression and reproduction tests
-# TODO; use all repair_samples
 printf "\nxxxxx\n[VALIDATION: Select best patch with regression and reproduction tests.]\n"
-for rs in {0..3..1}; do
-    python agentless/repair/rerank.py --patch_folder $result_folder/repair_sample_${rs}/ \
-                                    --num_samples 10 \
-                                    --deduplicate \
-                                    --regression \
-                                    --reproduction \
-                                    --output_file ${result_folder}/all_preds.jsonl
-done
+python agentless/repair/rerank.py --patch_folder ${result_folder}/repair_sample_0/,${result_folder}/repair_sample_1/,${result_folder}/repair_sample_2/,${result_folder}/repair_sample_3/ \
+                                --num_samples 40 \
+                                --deduplicate \
+                                --regression \
+                                --reproduction \
+                                --output_file ${result_folder}/all_preds.jsonl
 
 duration=$((SECONDS - start))
 printf "\n"
