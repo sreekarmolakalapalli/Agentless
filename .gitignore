@@ -185,3 +185,6 @@ launch.json
 
 # DS Store
 .DS_Store
+
+/embedding/
+/results/
