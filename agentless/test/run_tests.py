@@ -373,10 +373,10 @@ def run_reproduction_tests(
 
     ds = load_dataset(dataset_name)
 
-    df = ds['test'].to_pandas()
     for idx, one_instance_id in enumerate(instance_ids):
+        df = ds['test'].to_pandas()
         
-        df = df[df['instance_id'] == one_instance_id].to_dict()
+        df_edit = df[df['instance_id'] == one_instance_id].to_dict()
 
         
 
@@ -386,7 +386,7 @@ def run_reproduction_tests(
             patch_to_apply = model_patches[idx]
 
         
-        combined_diff = patch_to_apply + "\n" + list(df['test_patch'].values())[0] # take the value element
+        combined_diff = patch_to_apply + "\n" + list(df_edit['test_patch'].values())[0] # take the value element
     
         if testing_patches:
             predictions[one_instance_id] = {

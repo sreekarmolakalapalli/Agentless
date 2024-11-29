@@ -72,7 +72,7 @@ def _run_reproduction_tests(args):
             dataset_name=args.dataset,
         )
 
-        print("results", results)
+        #print("results", results)
 
         with open(args.test_jsonl.replace(".jsonl", "_verified.jsonl"), "w") as file:
             for evaluation_test in evaluation_tests:
