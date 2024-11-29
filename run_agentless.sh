@@ -174,30 +174,30 @@ start=$SECONDS
 # # read -n 1 -p "press a key to continue"
                                                      
 
-# 5. Run reproduction tests to see if they can reproduce issue
-# Do one not in parallel so it sets up the docker containers first
-# OUTPUT: reproduction_test_samples/output_{n}_processed_reproduction_test_verified.jsonl
-# TODO: not working for astropy__astropy-12907 right now, though django__django-10914 worked before. It's failing to run containers. idk, in process of figuring it out.
-printf "\nxxxxx\n[VALIDATION: Run reproduction test to see if they can reproduce issue.]\n"
-python agentless/test/run_reproduction_tests.py --run_id="gold_reproduction_test_generation_filter_sample_1" \
-                                                --test_jsonl="${result_folder}/reproduction_test_samples/output_1_processed_reproduction_test.jsonl" \
-                                                --num_workers 4 \
-                                                --testing \
-                                                --instance_ids=${instance} \
-                                                --dataset=princeton-nlp/SWE-bench_Verified
-for st in {0..36..4}; do   en=$((st + 3));   
-        echo "Processing ${st} to ${en}";   
-        for num in $(seq $st $en); do
-            echo "Processing ${num}";     
-            python agentless/test/run_reproduction_tests.py --run_id="reproduction_test_generation_filter_sample_${num}" \
-                                                            --test_jsonl="${result_folder}/reproduction_test_samples/output_${num}_processed_reproduction_test.jsonl" \
-                                                            --num_workers 4 \
-                                                            --testing \
-                                                            --instance_ids=${instance} \
-                                                            --dataset=princeton-nlp/SWE-bench_Verified
-    done
-done
-# read -n 1 -p "press a key to continue"
+# # 5. Run reproduction tests to see if they can reproduce issue
+# # Do one not in parallel so it sets up the docker containers first
+# # OUTPUT: reproduction_test_samples/output_{n}_processed_reproduction_test_verified.jsonl
+# # TODO: not working for astropy__astropy-12907 right now, though django__django-10914 worked before. It's failing to run containers. idk, in process of figuring it out.
+# printf "\nxxxxx\n[VALIDATION: Run reproduction test to see if they can reproduce issue.]\n"
+# python agentless/test/run_reproduction_tests.py --run_id="gold_reproduction_test_generation_filter_sample_1" \
+#                                                 --test_jsonl="${result_folder}/reproduction_test_samples/output_1_processed_reproduction_test.jsonl" \
+#                                                 --num_workers 4 \
+#                                                 --testing \
+#                                                 --instance_ids=${instance} \
+#                                                 --dataset=princeton-nlp/SWE-bench_Verified
+# for st in {0..36..4}; do   en=$((st + 3));   
+#         echo "Processing ${st} to ${en}";   
+#         for num in $(seq $st $en); do
+#             echo "Processing ${num}";     
+#             python agentless/test/run_reproduction_tests.py --run_id="reproduction_test_generation_filter_sample_${num}" \
+#                                                             --test_jsonl="${result_folder}/reproduction_test_samples/output_${num}_processed_reproduction_test.jsonl" \
+#                                                             --num_workers 4 \
+#                                                             --testing \
+#                                                             --instance_ids=${instance} \
+#                                                             --dataset=princeton-nlp/SWE-bench_Verified
+#     done
+# done
+# # read -n 1 -p "press a key to continue"
 
 # # 6. Pick best reproduction test
 # # OUTPUT: reproduction_tests.jsonl
@@ -209,28 +209,28 @@ done
 #                                                      --dataset=princeton-nlp/SWE-bench_Verified
 # # read -n 1 -p "press a key to continue"
 
-# # 7. Evaluate patches on chosen generated unit test
-# printf "\nxxxxx\n[VALIDATION: Evaluate patches on chosen generated unit test.]\n"
-# for rs in {0..3..1}; do
-#     folder=$result_folder/repair_sample_${rs}  # TODO: test this change before running entire script
-#     for num in {0..9..1}; do
-#         run_id_prefix=$(basename $folder); 
-#         python agentless/test/run_reproduction_tests.py --test_jsonl $result_folder/reproduction_test_samples/reproduction_tests.jsonl \
-#                                                         --predictions_path="${folder}/output_${num}_processed.jsonl" \
-#                                                         --run_id="${run_id_prefix}_reproduction_${num}" --num_workers 10; \
-#                                                         --dataset=princeton-nlp/SWE-bench_Verified
-#     done
-# done
-# # read -n 1 -p "press a key to continue"
+# 7. Evaluate patches on chosen generated unit test
+printf "\nxxxxx\n[VALIDATION: Evaluate patches on chosen generated unit test.]\n"
+for rs in {1..4..1}; do
+    folder=$result_folder/repair_sample_${rs}  # TODO: test this change before running entire script
+    for num in {0..9..1}; do
+        run_id_prefix=$(basename $folder); 
+        python agentless/test/run_reproduction_tests.py --test_jsonl $result_folder/reproduction_test_samples/reproduction_tests.jsonl \
+                                                        --predictions_path="${folder}/output_${num}_processed.jsonl" \
+                                                        --run_id="${run_id_prefix}_reproduction_${num}" --num_workers 10 \
+                                                        --dataset=princeton-nlp/SWE-bench_Verified
+    done
+done
+# read -n 1 -p "press a key to continue"
 
-# # 8. select best patch with regression and reproduction tests
-# printf "\nxxxxx\n[VALIDATION: Select best patch with regression and reproduction tests.]\n"
-# python agentless/repair/rerank.py --patch_folder ${result_folder}/repair_sample_0/,${result_folder}/repair_sample_1/,${result_folder}/repair_sample_2/,${result_folder}/repair_sample_3/ \
-#                                 --num_samples 40 \
-#                                 --deduplicate \
-#                                 --regression \
-#                                 --reproduction \
-#                                 --output_file ${result_folder}/all_preds.jsonl
+# 8. select best patch with regression and reproduction tests
+printf "\nxxxxx\n[VALIDATION: Select best patch with regression and reproduction tests.]\n"
+python agentless/repair/rerank.py --patch_folder ${result_folder}/repair_sample_1/,${result_folder}/repair_sample_2/,${result_folder}/repair_sample_3/,${result_folder}/repair_sample_4/ \
+                                --num_samples 40 \
+                                --deduplicate \
+                                --regression \
+                                --reproduction \
+                                --output_file ${result_folder}/all_preds_gold.jsonl
 
 duration=$((SECONDS - start))
 printf "\n"
