@@ -57,7 +57,7 @@ def _run_reproduction_tests(args):
 
         evaluation_tests = load_jsonl(args.test_jsonl)
 
-        print("length of evaluation test", len(evaluation_tests))
+        # print("length of evaluation test", len(evaluation_tests))
 
         results = run_reproduction_tests(
             instance_ids,
@@ -72,7 +72,7 @@ def _run_reproduction_tests(args):
             dataset_name=args.dataset,
         )
 
-        #print("results", results)
+        # print("results", results)
 
         with open(args.test_jsonl.replace(".jsonl", "_verified.jsonl"), "w") as file:
             for evaluation_test in evaluation_tests:
@@ -129,7 +129,7 @@ def _run_reproduction_tests(args):
                     reproduction_dict[instance_id] = False
         else:
 
-            print("running reproduction test")
+            # print("running reproduction test")
             reproduction_dict = run_reproduction_for_each_instance(
                 args, data_lines, args.run_id, args.test_jsonl
             )

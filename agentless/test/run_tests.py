@@ -361,7 +361,7 @@ def run_reproduction_tests(
 
     instance_to_reproduction_code = create_instance_test_dict(test_jsonl)
 
-    print("instance to reproduction code", type(instance_to_reproduction_code))
+    # print("instance to reproduction code", type(instance_to_reproduction_code))
 
     print(f"Using run_id: {run_id}")
 
@@ -402,9 +402,9 @@ def run_reproduction_tests(
                 "instance_id": one_instance_id,
             }
 
-    print("instance ids", instance_ids)
+    # print("instance ids", instance_ids)
 
-    print("predictions", predictions)
+    # print("predictions", predictions)
     
     instances = get_dataset_from_preds(
         dataset_name, split, instance_ids, predictions, run_id
@@ -412,7 +412,7 @@ def run_reproduction_tests(
 
     #print(instances)
 
-    print("Instance data", instances)
+    # print("Instance data", instances)
 
     if not instances:
         print("No instances to run.")
