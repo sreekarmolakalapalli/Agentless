@@ -2,9 +2,9 @@
 {
 # instance=$1
 
-# result_folder="results/agentless_swebench_verified"
-result_folder="results/nov7demo"
-instance="django__django-10914"
+result_folder="results/agentless_swebench_verified"
+# result_folder="results/nov7demo"
+# instance="django__django-10914"
 # Previously ran successfully: django__django-10914
 
 # printf "\n\n----------------RUNNING INSTANCE ${instance}---------------------"
@@ -217,20 +217,20 @@ for rs in {1..4..1}; do
         run_id_prefix=$(basename $folder); 
         python agentless/test/run_reproduction_tests.py --test_jsonl $result_folder/reproduction_test_samples/reproduction_tests.jsonl \
                                                         --predictions_path="${folder}/output_${num}_processed.jsonl" \
-                                                        --run_id="${run_id_prefix}_reproduction_${num}" --num_workers 10 \
+                                                        --run_id="${run_id_prefix}_reproduction_${num}" --num_workers 1 \
                                                         --dataset=princeton-nlp/SWE-bench_Verified
     done
 done
 # read -n 1 -p "press a key to continue"
 
 # 8. select best patch with regression and reproduction tests
-printf "\nxxxxx\n[VALIDATION: Select best patch with regression and reproduction tests.]\n"
-python agentless/repair/rerank.py --patch_folder ${result_folder}/repair_sample_1/,${result_folder}/repair_sample_2/,${result_folder}/repair_sample_3/,${result_folder}/repair_sample_4/ \
-                                --num_samples 40 \
-                                --deduplicate \
-                                --regression \
-                                --reproduction \
-                                --output_file ${result_folder}/all_preds_gold.jsonl
+# printf "\nxxxxx\n[VALIDATION: Select best patch with regression and reproduction tests.]\n"
+# python agentless/repair/rerank.py --patch_folder ${result_folder}/repair_sample_1/,${result_folder}/repair_sample_2/,${result_folder}/repair_sample_3/,${result_folder}/repair_sample_4/ \
+#                                 --num_samples 40 \
+#                                 --deduplicate \
+#                                 --regression \
+#                                 --reproduction \
+#                                 --output_file ${result_folder}/all_preds_gold.jsonl
 
 duration=$((SECONDS - start))
 printf "\n"
