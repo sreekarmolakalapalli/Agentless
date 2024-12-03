@@ -425,7 +425,7 @@ def run_reproduction_tests(
     for instance in instances:
         revised_instance = instance
         revised_instance["FAIL_TO_PASS"] = instance["FAIL_TO_PASS"]
-        revised_instance["PASS_TO_PASS"] = "[]"
+        revised_instance["PASS_TO_PASS"] = instance["PASS_TO_PASS"]
 
         if instance["instance_id"] in instance_to_reproduction_code:
             # revised_instance["production_test"] = instance_to_reproduction_code[
@@ -516,10 +516,11 @@ def run_reproduction_tests(
                     try:
                         with open(path_to_log) as f:
                             result_ftp = json.loads(f)["tests_status"]["FAIL_TO_PASS"]["failure"]
+                            results_ptp = json.loads(f)["tests_status"]["PASS_TO_PASS"]["failure"]
                     except Exception as e:
                         print(e)
 
-                    if len(result_ftp) == 0:
+                    if len(result_ftp) == 0 and len(results_ptp) == 0:
                         results[instance_id] = True
                     else:
                         results[instance_id] = False
